@@ -1,5 +1,8 @@
 # LLM-ReqVerif: LLM-Assisted Formal Verification for Requirements
 
+## Proposed increase
+<img width="1429" height="741" alt="Sem título" src="https://github.com/user-attachments/assets/c7451be1-2e0a-43a7-9f96-2f759f20c4c5" />
+
 ## 📌 Overview
 LLM-ReqVerif is a framework for translating **natural language requirements** into **verifiable properties** and integrating them with **formal verification tools**. The project provides:
 - **C code-based verification properties** extracted from Simulink models.

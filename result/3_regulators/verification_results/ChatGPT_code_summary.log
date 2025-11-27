@@ -1,5 +1,5 @@
-Verification Summary - 2025-01-13 17:41:52.844177
-Directory: ./3_regulators/LLM_code/ChatGPT_code
+Verification Summary - 2025-11-26 23:58:36.921471
+Directory: .\3_regulators\LLM_code\ChatGPT_code
 Source file: ert_main.c
 ==================================================
 
@@ -25,21 +25,21 @@ Status: TIMEOUT
 
 Property 6
 --------------------
-Status: SUCCESSFUL
+Status: TIMEOUT
 
 Property 7
 --------------------
-Status: SUCCESSFUL
+Status: TIMEOUT
 
 Property 8
 --------------------
-Status: SUCCESSFUL
+Status: TIMEOUT
 
 Property 9
 --------------------
-Status: SUCCESSFUL
+Status: TIMEOUT
 
 Property 10
 --------------------
-Status: SUCCESSFUL
+Status: TIMEOUT
 

@@ -1,40 +1,41 @@
-ESBMC version 7.7.0 64-bit x86_64 linux
-Target: 64-bit little-endian x86_64-unknown-linux with esbmclibc
-Parsing triplex_12B.c
+ESBMC version 7.11.0 64-bit x86_64 windows
+Target: 64-bit little-endian x86_64-unknown-windows with esbmclibc
 Parsing ert_main.c
+Parsing triplex_12B.c
 Converting
 Generating GOTO Program
-GOTO program creation time: 0.698s
-GOTO program processing time: 0.008s
+GOTO program creation time: 0.477s
+GOTO program processing time: 0.009s
 Checking base case, k = 1
 Starting Bounded Model Checking
-Not unwinding loop 6 iteration 1   file ert_main.c line 65 column 5 function main
-Symex completed in: 0.007s (281 assignments)
-Slicing time: 0.000s (removed 194 assignments)
-Generated 2 VCC(s), 2 remaining after simplification (87 assignments)
-No solver specified; defaulting to Boolector
+Not unwinding loop 4 iteration 1   file ert_main.c line 66 column 5 function main
+Symex completed in: 0.007s (225 assignments)
+Slicing time: 0.000s (removed 141 assignments)
+Generated 2 VCC(s), 2 remaining after simplification (84 assignments)
+No solver specified; defaulting to z3
 Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
-Encoding to solver time: 0.020s
-Solving with solver Boolector 3.2.3
-Runtime decision procedure: 0.420s
+Encoding to solver time: 0.002s
+Solving with solver Z3 v4.13.3
+Runtime decision procedure: 128.577s
 Building error trace
 
 [Counterexample]
 
 
-State 3 file ert_main.c line 67 column 9 function main thread 0
+State 3 file ert_main.c line 68 column 18 function main thread 0
 ----------------------------------------------------
-  rtU.ia = { .ia=(double)main::$tmp::return_value$_nondet_float$1?1!0&0#1, .ib=0.000000,
-    .ic=0.000000, .Tlevel=0.000000, .PClimit=0,
-    .anon_pad$5=0 }
+  rtU.ia = { .ia=nondet_symbol(symex::nondet3), .ib=0.000000, .ic=0.000000,
+    .Tlevel=0.000000, .PClimit=0, .anon_pad$5=0 }
 
-State 4 file ert_main.c line 68 column 9 function main thread 0
+State 4 file ert_main.c line 69 column 18 function main thread 0
 ----------------------------------------------------
-  rtU.ib = 4.703135e-38 (00111000 00110000 00000001 00000010 00100000 00000000 00000000 00000000)
+  rtU.ib = { .ia=-3.806913e-116, .ib=16.000000, .ic=0.000000, .Tlevel=0.000000,
+    .PClimit=0, .anon_pad$5=0 }
 
-State 5 file ert_main.c line 69 column 9 function main thread 0
+State 5 file ert_main.c line 70 column 18 function main thread 0
 ----------------------------------------------------
-  rtU.ic = 2.560000e+2 (01000000 01101111 11111111 11111111 10100000 00000000 00000000 00000000)
+  rtU.ic = { .ia=-3.806913e-116, .ib=16.000000, .ic=-3.013189e-116, .Tlevel=0.000000,
+    .PClimit=0, .anon_pad$5=0 }
 
 State 9 file triplex_12B.c line 69 column 3 function triplex_12B_step thread 0
 ----------------------------------------------------
@@ -110,38 +111,38 @@ State 26 file triplex_12B.c line 308 column 7 function triplex_12B_step thread 0
 
 State 27 file triplex_12B.c line 309 column 7 function triplex_12B_step thread 0
 ----------------------------------------------------
-  rtDW.Merge_e[2] = 0 (00000000 00000000 00000000 00000000)
+  rtDW.Merge_e[2] = { .Merge = 0.000000 }
 
 State 28 file triplex_12B.c line 339 column 5 function triplex_12B_step thread 0
 ----------------------------------------------------
-  rtb_Abs1 = -1.706667e+2 (11000000 01100101 01010101 01010101 01001010 10101010 10101010 10101011)
+  rtb_Abs1 = 5.333333e+0 (01000000 00010101 01010101 01010101 01010101 01010101 01010101 01010101)
 
-State 29 file triplex_12B.c line 351 column 7 function triplex_12B_step thread 0
+State 29 file triplex_12B.c line 353 column 7 function triplex_12B_step thread 0
 ----------------------------------------------------
-  rtb_Switch = 4.703135e-38 (00111000 00110000 00000001 00000010 00100000 00000000 00000000 00000000)
+  rtb_Switch = -3.806913e-116 (10100111 11111000 00000000 00000000 00000100 00000000 00000000 00000000)
 
 State 30 file triplex_12B.c line 371 column 7 function triplex_12B_step thread 0
 ----------------------------------------------------
-  rtDW.Merge = 4.703135e-38 (00111000 00110000 00000001 00000010 00100000 00000000 00000000 00000000)
+  rtDW.Merge = { .Merge=-3.806913e-116, .Merge_e={ 0, 1, 0 }, .Delay1_DSTATE={ 0, 0, 0 } }
 
 State 31 file triplex_12B.c line 426 column 3 function triplex_12B_step thread 0
 ----------------------------------------------------
-  rtDW.Delay1_DSTATE[0] = 0 (00000000 00000000 00000000 00000000)
+  rtDW.Delay1_DSTATE[0] = { .Merge=-3.806913e-116, .Merge_e={ 0, 1, 0 }, .Delay1_DSTATE=0 }
 
 State 32 file triplex_12B.c line 427 column 3 function triplex_12B_step thread 0
 ----------------------------------------------------
-  rtDW.Delay1_DSTATE[1] = 1 (00000000 00000000 00000000 00000001)
+  rtDW.Delay1_DSTATE[1] = { .Merge=-3.806913e-116, .Merge_e={ 0, 1, 0 }, .Delay1_DSTATE=1 }
 
 State 33 file triplex_12B.c line 428 column 3 function triplex_12B_step thread 0
 ----------------------------------------------------
-  rtDW.Delay1_DSTATE[2] = 0 (00000000 00000000 00000000 00000000)
+  rtDW.Delay1_DSTATE[2] = { .Merge=-3.806913e-116, .Merge_e={ 0, 1, 0 }, .Delay1_DSTATE=0 }
 
-State 34 file ert_main.c line 88 column 13 function main thread 0
+State 34 file ert_main.c line 89 column 13 function main thread 0
 ----------------------------------------------------
 Violated property:
-  file ert_main.c line 88 column 13 function main
+  file ert_main.c line 89 column 13 function main
   RM-001: PC should increment or fault should be detected
-  (_Bool)(rtDW.Delay1_DSTATE[0] > prev_fc || rtDW.Delay1_DSTATE[2] != 0)
+  rtDW.Delay1_DSTATE[0] > prev_fc || rtDW.Delay1_DSTATE[2] != 0
 
 
 VERIFICATION FAILED

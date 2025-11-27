@@ -1,45 +1,45 @@
-Verification Summary - 2025-01-13 17:16:14.999988
-Directory: ./3_regulators/LLM_code/Claude_code
+Verification Summary - 2025-11-27 00:33:49.100310
+Directory: .\3_regulators\LLM_code\Claude_code
 Source file: ert_main.c
 ==================================================
 
 Property 1
 --------------------
-Status: TIMEOUT
+Status: UNKNOWN
 
 Property 2
 --------------------
-Status: TIMEOUT
+Status: UNKNOWN
 
 Property 3
 --------------------
-Status: TIMEOUT
+Status: UNKNOWN
 
 Property 4
 --------------------
-Status: TIMEOUT
+Status: UNKNOWN
 
 Property 5
 --------------------
-Status: TIMEOUT
+Status: UNKNOWN
 
 Property 6
 --------------------
-Status: FAILED
+Status: UNKNOWN
 
 Property 7
 --------------------
-Status: FAILED
+Status: UNKNOWN
 
 Property 8
 --------------------
-Status: FAILED
+Status: UNKNOWN
 
 Property 9
 --------------------
-Status: FAILED
+Status: UNKNOWN
 
 Property 10
 --------------------
-Status: FAILED
+Status: UNKNOWN
 

@@ -1,13 +1,13 @@
-Verification Summary - 2025-01-13 14:19:41.021792
-Directory: ./8_swim/LLM_code/Claude_code
+Verification Summary - 2025-11-27 02:44:10.467061
+Directory: .\8_swim\LLM_code\Claude_code
 Source file: ert_main.c
 ==================================================
 
 Property 1
 --------------------
-Status: FAILED
+Status: UNKNOWN
 
 Property 2
 --------------------
-Status: FAILED
+Status: UNKNOWN
 

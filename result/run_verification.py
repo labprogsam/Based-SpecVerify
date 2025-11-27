@@ -237,13 +237,35 @@ def process_llm_directory(verifier, llm_dir):
     return directories_processed
 
 def find_llm_dirs():
-    """Find all directories containing 'LLM' in their name"""
+    """Find all directories containing 'LLM_code' in their name
+    
+    Suporta tanto a estrutura antiga (ChatGPT_code, Claude_code) quanto
+    a nova estrutura (ChatGPT_Claude, Claude_ChatGPT, etc.)
+    """
     llm_dirs = []
     for root, dirs, _ in os.walk('.'):
-        llm_subdirs = [d for d in dirs if 'LLM' in d]
-        for subdir in llm_subdirs:
-            full_path = os.path.join(root, subdir)
-            llm_dirs.append(full_path)
+        if 'LLM_code' in dirs:
+            llm_code_path = os.path.join(root, 'LLM_code')
+            # Procura subdiretórios dentro de LLM_code
+            if os.path.exists(llm_code_path):
+                has_valid_subdir = False
+                try:
+                    for item in os.listdir(llm_code_path):
+                        subdir_path = os.path.join(llm_code_path, item)
+                        if os.path.isdir(subdir_path):
+                            # Verifica se contém arquivos .c (código de verificação)
+                            try:
+                                has_c_files = any(f.endswith('.c') for f in os.listdir(subdir_path) 
+                                                if os.path.isfile(os.path.join(subdir_path, f)))
+                                if has_c_files:
+                                    has_valid_subdir = True
+                                    break
+                            except (PermissionError, OSError):
+                                continue
+                except (PermissionError, OSError):
+                    continue
+                if has_valid_subdir:
+                    llm_dirs.append(llm_code_path)
     return llm_dirs
 
 def create_summary_csv(results_summary):

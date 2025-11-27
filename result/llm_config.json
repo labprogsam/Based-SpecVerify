@@ -1,0 +1,104 @@
+{
+  "combinations": [
+    {
+      "name": "ChatGPT_Claude",
+      "description": "ChatGPT para especificação formal, Claude para código de verificação",
+      "phase1": {
+        "name": "ChatGPT",
+        "provider": "openai",
+        "model": "gpt-4",
+        "api_key_env": "OPENAI_API_KEY"
+      },
+      "phase2": {
+        "name": "Claude",
+        "provider": "anthropic",
+        "model": "claude-3-5-sonnet-20241022",
+        "api_key_env": "ANTHROPIC_API_KEY"
+      }
+    },
+    {
+      "name": "Claude_ChatGPT",
+      "description": "Claude para especificação formal, ChatGPT para código de verificação",
+      "phase1": {
+        "name": "Claude",
+        "provider": "anthropic",
+        "model": "claude-3-5-sonnet-20241022",
+        "api_key_env": "ANTHROPIC_API_KEY"
+      },
+      "phase2": {
+        "name": "ChatGPT",
+        "provider": "openai",
+        "model": "gpt-4",
+        "api_key_env": "OPENAI_API_KEY"
+      }
+    },
+    {
+      "name": "Claude_Claude",
+      "description": "Claude em ambas as etapas",
+      "phase1": {
+        "name": "Claude",
+        "provider": "anthropic",
+        "model": "claude-3-5-sonnet-20241022",
+        "api_key_env": "ANTHROPIC_API_KEY"
+      },
+      "phase2": {
+        "name": "Claude",
+        "provider": "anthropic",
+        "model": "claude-3-5-sonnet-20241022",
+        "api_key_env": "ANTHROPIC_API_KEY"
+      }
+    },
+    {
+      "name": "ChatGPT_ChatGPT",
+      "description": "ChatGPT em ambas as etapas",
+      "phase1": {
+        "name": "ChatGPT",
+        "provider": "openai",
+        "model": "gpt-4",
+        "api_key_env": "OPENAI_API_KEY"
+      },
+      "phase2": {
+        "name": "ChatGPT",
+        "provider": "openai",
+        "model": "gpt-4",
+        "api_key_env": "OPENAI_API_KEY"
+      }
+    },
+    {
+      "name": "Llama_Llama",
+      "description": "Llama (Ollama local) em ambas as etapas",
+      "phase1": {
+        "name": "Llama",
+        "provider": "ollama",
+        "model": "llama3.1",
+        "api_key_env": "",
+        "base_url": "http://localhost:11434"
+      },
+      "phase2": {
+        "name": "Llama",
+        "provider": "ollama",
+        "model": "llama3.1",
+        "api_key_env": "",
+        "base_url": "http://localhost:11434"
+      }
+    },
+    {
+      "name": "Claude_Llama",
+      "description": "Claude para especificação formal, Llama para código de verificação",
+      "phase1": {
+        "name": "Claude",
+        "provider": "anthropic",
+        "model": "claude-3-5-sonnet-20241022",
+        "api_key_env": "ANTHROPIC_API_KEY"
+      },
+      "phase2": {
+        "name": "Llama",
+        "provider": "ollama",
+        "model": "llama3.1",
+        "api_key_env": "",
+        "base_url": "http://localhost:11434"
+      }
+    }
+  ]
+}
+

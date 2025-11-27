@@ -1,0 +1,14 @@
+# API Keys (não commitar!)
+api_keys.json
+
+# Resultados de verificação gerados
+verification_results/
+*.log
+
+# Arquivos temporários
+*.pyc
+__pycache__/
+*.swp
+*.swo
+*~
+

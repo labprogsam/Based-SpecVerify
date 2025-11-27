@@ -70,10 +70,20 @@ python run_verification.py
 
 ### 3 Run a Specific Verification Property
 To verify a specific property (e.g., VERIFY_PROPERTY_1), use:
+
+**On Linux/macOS:**
 ```
 cd 1_fsm/LLM_code/Claude_code
 esbmc ert_main.c triplex_12B.c -I ./ -I ../../../ --k-induction --memlimit 8g --timeout 300 -DVERIFY_PROPERTY_1
 ```
+
+**On Windows:**
+```
+cd 1_fsm\LLM_code\Claude_code
+esbmc ert_main.c triplex_12B.c -I ./ -I ..\..\..\ --k-induction -DVERIFY_PROPERTY_1
+```
+
+**Note:** The `--timeout` and `--memlimit` options are not supported on Windows. The verification scripts (`run_verification.py`) automatically handle this by detecting the platform and adjusting the ESBMC command accordingly.
 
 ⚙️ Dependencies
 This framework relies on the following formal verification tools:

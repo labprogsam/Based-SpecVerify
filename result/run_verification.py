@@ -2,20 +2,69 @@
 import re
 import subprocess
 import os
+import sys
 import csv
 from datetime import datetime
 from collections import defaultdict
 
 class PropertyVerifier:
     def __init__(self):
+        # Get project root directory (assuming script is in result/)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)
+        include_dir = os.path.join(project_root, "include")
+        
         self.include_paths = [
             "./",
+            include_dir,  # Add project include directory for standard headers
             "/usr/local/MATLAB/R2024b/simulink/include",
             "/usr/local/MATLAB/R2024b/rtw/c/src",
             "/usr/local/MATLAB/R2024b/extern/include",
             "/usr/local/MATLAB/R2024b/simulink/include/sf_runtime"
         ]
         self.results_summary = defaultdict(dict)
+        
+    def find_esbmc_include_paths(self):
+        """Find ESBMC standard include paths, especially for Windows"""
+        include_paths = []
+        
+        if sys.platform == "win32":
+            # Try to find ESBMC installation directory
+            try:
+                # Check common installation locations
+                possible_paths = [
+                    os.path.join(os.environ.get("ProgramFiles", ""), "esbmc", "include"),
+                    os.path.join(os.environ.get("ProgramFiles(x86)", ""), "esbmc", "include"),
+                    os.path.join(os.environ.get("LOCALAPPDATA", ""), "esbmc", "include"),
+                    os.path.join(os.environ.get("APPDATA", ""), "esbmc", "include"),
+                ]
+                
+                # Also try to find from PATH
+                import shutil
+                esbmc_path = shutil.which("esbmc")
+                if esbmc_path:
+                    esbmc_dir = os.path.dirname(esbmc_path)
+                    possible_paths.extend([
+                        os.path.join(esbmc_dir, "include"),
+                        os.path.join(os.path.dirname(esbmc_dir), "include"),
+                        os.path.join(os.path.dirname(esbmc_dir), "esbmclibc", "include"),
+                    ])
+                
+                for path in possible_paths:
+                    if path and os.path.exists(path):
+                        include_paths.append(path)
+                        break
+            except Exception:
+                pass
+            
+            # If no specific path found, ESBMC should use esbmclibc automatically
+            # But we can try adding common system include paths as fallback
+            if not include_paths:
+                # Try to use --idirafter with common Windows paths
+                # ESBMC on Windows should handle standard headers via esbmclibc
+                pass
+        
+        return include_paths
         
     def extract_properties(self, file_path):
         """Extract all VERIFY_PROPERTY definitions from file"""
@@ -44,14 +93,56 @@ class PropertyVerifier:
             # Construct include paths arguments
             include_args = []
             for path in self.include_paths:
-                include_args.extend(["-I", path])
+                # Skip Unix-specific paths on Windows
+                if sys.platform == "win32" and path.startswith("/usr/"):
+                    continue
+                # Add path if it exists or is a relative path (like "./")
+                if os.path.exists(path) or not path.startswith("/"):
+                    include_args.extend(["-I", path])
+                # On Windows, also try to add include directory even if path doesn't start with /
+                elif sys.platform == "win32" and not path.startswith("/"):
+                    include_args.extend(["-I", path])
             
+            # Add ESBMC standard include paths for Windows
+            if sys.platform == "win32":
+                esbmc_includes = self.find_esbmc_include_paths()
+                for path in esbmc_includes:
+                    include_args.extend(["-I", path])
+            
+            # Build ESBMC command
             cmd = ["esbmc"] + c_files + include_args + [
                 "--k-induction",
-                "--memlimit", "8g",
-                "--timeout", "300",
                 f"-DVERIFY_PROPERTY_{property_num}"
             ]
+            
+            # On Windows, ESBMC uses esbmclibc for standard headers
+            # If headers are not found, try to locate esbmclibc installation
+            if sys.platform == "win32":
+                # Try to find esbmclibc include directory
+                try:
+                    import shutil
+                    esbmc_path = shutil.which("esbmc")
+                    if esbmc_path:
+                        esbmc_dir = os.path.dirname(esbmc_path)
+                        # Common locations for esbmclibc headers
+                        possible_libc_paths = [
+                            os.path.join(esbmc_dir, "..", "esbmclibc", "include"),
+                            os.path.join(esbmc_dir, "..", "include"),
+                            os.path.join(os.path.dirname(esbmc_dir), "esbmclibc", "include"),
+                            os.path.join(os.path.dirname(esbmc_dir), "include"),
+                        ]
+                        for libc_path in possible_libc_paths:
+                            libc_path = os.path.normpath(libc_path)
+                            if os.path.exists(libc_path) and os.path.exists(os.path.join(libc_path, "stdio.h")):
+                                cmd.extend(["--idirafter", libc_path])
+                                break
+                except Exception:
+                    pass
+            
+            # Add timeout and memlimit options only on non-Windows systems
+            # (ESBMC timeout and memlimit are not implemented on Windows)
+            if sys.platform != "win32":
+                cmd.extend(["--timeout", "300", "--memlimit", "8g"])
 
             result = subprocess.run(cmd, 
                                   capture_output=True, 

@@ -81,6 +81,9 @@ O arquivo `llm_config.json` permite definir combinações pré-configuradas:
   ]
 }
 ```
+##### versoes de llms
+claude: https://platform.claude.com/docs/en/about-claude/models/overview
+chatgpt: GET - https://api.openai.com/v1/models (Autenticação de Bearer token sendo ele: Bearer api_key)
 
 ### Usando Ollama (Llama local)
 

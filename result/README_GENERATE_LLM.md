@@ -68,7 +68,7 @@ O arquivo `llm_config.json` permite definir combinações pré-configuradas:
       "phase1": {
         "name": "ChatGPT",
         "provider": "openai",
-        "model": "gpt-4",
+        "model": "gpt-5",
         "api_key_env": "OPENAI_API_KEY"
       },
       "phase2": {

@@ -4,6 +4,7 @@ import subprocess
 import os
 import sys
 import csv
+import argparse
 from datetime import datetime
 from collections import defaultdict
 
@@ -147,7 +148,7 @@ class PropertyVerifier:
             result = subprocess.run(cmd, 
                                   capture_output=True, 
                                   text=True,
-                                  timeout=300)
+                                  timeout=600)
             output = result.stdout + result.stderr
             
             if "VERIFICATION SUCCESSFUL" in output:
@@ -165,8 +166,15 @@ class PropertyVerifier:
             
         return status, output
 
-    def process_directory(self, directory, results_dir, task_name):
-        """Process verification for a specific directory"""
+    def process_directory(self, directory, results_dir, task_name, property_filter=None):
+        """Process verification for a specific directory
+        
+        Args:
+            directory: Diretório com código de verificação
+            results_dir: Diretório para salvar resultados
+            task_name: Nome da tarefa
+            property_filter: Se fornecido, verifica apenas esta propriedade (ex: 1, 2, 3)
+        """
         print(f"\nProcessing directory: {directory}")
         
         properties_found = False
@@ -178,6 +186,13 @@ class PropertyVerifier:
             properties = self.extract_properties(file_path)
             
             if properties:
+                # Aplica filtro de propriedade se fornecido
+                if property_filter is not None:
+                    if property_filter not in properties:
+                        print(f"Property {property_filter} not found in {source_file}. Available: {properties}")
+                        return False
+                    properties = [property_filter]
+                
                 properties_found = True
                 print(f"Found properties in {source_file}: {properties}")
                 
@@ -213,8 +228,14 @@ class PropertyVerifier:
         
         return properties_found
 
-def process_llm_directory(verifier, llm_dir):
-    """Process all subdirectories in an LLM directory"""
+def process_llm_directory(verifier, llm_dir, property_filter=None):
+    """Process all subdirectories in an LLM directory
+    
+    Args:
+        verifier: Instância de PropertyVerifier
+        llm_dir: Diretório LLM_code
+        property_filter: Se fornecido, verifica apenas esta propriedade
+    """
     directories_processed = 0
     
     # Get task name from parent directory
@@ -231,21 +252,37 @@ def process_llm_directory(verifier, llm_dir):
         subdir_path = os.path.join(llm_dir, item)
         if os.path.isdir(subdir_path):
             print(f"Checking subdirectory: {subdir_path}")
-            if verifier.process_directory(subdir_path, results_dir, task_name):
+            if verifier.process_directory(subdir_path, results_dir, task_name, property_filter):
                 directories_processed += 1
     
     return directories_processed
 
-def find_llm_dirs():
+def find_llm_dirs(task_filter=None, llm_dir_filter=None):
     """Find all directories containing 'LLM_code' in their name
     
     Suporta tanto a estrutura antiga (ChatGPT_code, Claude_code) quanto
     a nova estrutura (ChatGPT_Claude, Claude_ChatGPT, etc.)
+    
+    Args:
+        task_filter: Se fornecido, filtra apenas tarefas que contenham este nome (ex: '1_fsm')
+        llm_dir_filter: Se fornecido, filtra apenas diretórios LLM específicos (caminho completo)
     """
     llm_dirs = []
     for root, dirs, _ in os.walk('.'):
         if 'LLM_code' in dirs:
             llm_code_path = os.path.join(root, 'LLM_code')
+            
+            # Filtro por tarefa
+            if task_filter:
+                task_name = os.path.basename(os.path.dirname(llm_code_path))
+                if task_filter not in task_name:
+                    continue
+            
+            # Filtro por diretório LLM específico
+            if llm_dir_filter:
+                if llm_dir_filter != llm_code_path:
+                    continue
+            
             # Procura subdiretórios dentro de LLM_code
             if os.path.exists(llm_code_path):
                 has_valid_subdir = False
@@ -296,30 +333,67 @@ def create_summary_csv(results_summary):
     print(f"\nSummary CSV created: verification_summary.csv")
 
 def main():
-    llm_dirs = find_llm_dirs()
+    parser = argparse.ArgumentParser(
+        description='Executa verificação de propriedades usando ESBMC',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Exemplos de uso:
+  # Executar todas as verificações
+  python run_verification.py
+  
+  # Executar apenas para uma tarefa específica
+  python run_verification.py --task 1_fsm
+  
+  # Executar apenas para um diretório LLM específico
+  python run_verification.py --llm-dir result/1_fsm/LLM_code
+  
+  # Executar apenas uma propriedade específica
+  python run_verification.py --task 1_fsm --property 1
+  
+  # Combinar filtros
+  python run_verification.py --task 1_fsm --property 1
+        """
+    )
+    parser.add_argument('--task', help='Nome da tarefa para filtrar (ex: 1_fsm, 0_triplex)')
+    parser.add_argument('--llm-dir', help='Caminho completo para diretório LLM_code específico')
+    parser.add_argument('--property', type=int, help='Número da propriedade para verificar (ex: 1, 2, 3)')
+    parser.add_argument('--no-csv', action='store_true', help='Não gerar arquivo CSV de resumo')
+    
+    args = parser.parse_args()
+    
+    # Encontra diretórios LLM com filtros aplicados
+    llm_dirs = find_llm_dirs(task_filter=args.task, llm_dir_filter=args.llm_dir)
     
     if not llm_dirs:
-        print("No directories containing 'LLM' found.")
+        print("Nenhum diretório contendo 'LLM_code' encontrado.")
+        if args.task:
+            print(f"Tentativa de filtro por tarefa: {args.task}")
+        if args.llm_dir:
+            print(f"Tentativa de filtro por diretório: {args.llm_dir}")
         return
     
-    print(f"Found {len(llm_dirs)} LLM directories:")
+    print(f"Encontrados {len(llm_dirs)} diretórios LLM:")
     for dir in llm_dirs:
         print(f"  {dir}")
+    
+    if args.property:
+        print(f"\n⚠️  Modo filtrado: verificando apenas Property {args.property}")
     
     verifier = PropertyVerifier()
     total_directories_processed = 0
     
     for llm_dir in llm_dirs:
-        print(f"\nProcessing LLM directory: {llm_dir}")
-        directories_processed = process_llm_directory(verifier, llm_dir)
+        print(f"\nProcessando diretório LLM: {llm_dir}")
+        directories_processed = process_llm_directory(verifier, llm_dir, args.property)
         total_directories_processed += directories_processed
     
     if total_directories_processed == 0:
-        print("\nNo files with VERIFY_PROPERTY definitions found in any directory.")
+        print("\nNenhum arquivo com definições VERIFY_PROPERTY encontrado em nenhum diretório.")
     else:
-        print(f"\nVerification complete. Processed {total_directories_processed} directories.")
-        # Create summary CSV
-        create_summary_csv(verifier.results_summary)
+        print(f"\n✓ Verificação concluída. Processados {total_directories_processed} diretórios.")
+        # Cria CSV de resumo apenas se não foi solicitado para não criar
+        if not args.no_csv:
+            create_summary_csv(verifier.results_summary)
 
 if __name__ == "__main__":
     main()

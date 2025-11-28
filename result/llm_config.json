@@ -6,13 +6,13 @@
       "phase1": {
         "name": "ChatGPT",
         "provider": "openai",
-        "model": "gpt-4",
+        "model": "gpt-5",
         "api_key_env": "OPENAI_API_KEY"
       },
       "phase2": {
         "name": "Claude",
         "provider": "anthropic",
-        "model": "claude-3-5-sonnet-20241022",
+        "model": "claude-opus-4-1-20250805",
         "api_key_env": "ANTHROPIC_API_KEY"
       }
     },
@@ -28,7 +28,7 @@
       "phase2": {
         "name": "ChatGPT",
         "provider": "openai",
-        "model": "gpt-4",
+        "model": "gpt-5",
         "api_key_env": "OPENAI_API_KEY"
       }
     },
@@ -44,7 +44,7 @@
       "phase2": {
         "name": "Claude",
         "provider": "anthropic",
-        "model": "claude-3-5-sonnet-20241022",
+        "model": "claude-opus-4-1-20250805",
         "api_key_env": "ANTHROPIC_API_KEY"
       }
     },
@@ -54,13 +54,13 @@
       "phase1": {
         "name": "ChatGPT",
         "provider": "openai",
-        "model": "gpt-4",
+        "model": "gpt-5",
         "api_key_env": "OPENAI_API_KEY"
       },
       "phase2": {
         "name": "ChatGPT",
         "provider": "openai",
-        "model": "gpt-4",
+        "model": "gpt-5",
         "api_key_env": "OPENAI_API_KEY"
       }
     },

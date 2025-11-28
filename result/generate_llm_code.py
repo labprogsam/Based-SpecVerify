@@ -63,7 +63,7 @@ class LLMGenerator:
         response = client.chat.completions.create(
             model=config.model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.1  # Baixa temperatura para resultados mais consistentes
+            temperature=1  # Baixa temperatura para resultados mais consistentes
         )
         return response.choices[0].message.content
     
@@ -79,7 +79,7 @@ class LLMGenerator:
             model=config.model,
             max_tokens=4096,
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.1
+            temperature=1
         )
         return response.content[0].text
     
@@ -98,7 +98,7 @@ class LLMGenerator:
                 "prompt": prompt,
                 "stream": False
             },
-            timeout=300
+            timeout=600
         )
         response.raise_for_status()
         return response.json()["response"]
@@ -291,7 +291,22 @@ def find_c_code_files(task_dir: str) -> tuple:
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Gera código de verificação usando LLMs diferentes em cada etapa'
+        description='Gera código de verificação usando LLMs diferentes em cada etapa',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Exemplos de uso:
+  # Executar ambas as etapas
+  python generate_llm_code.py --task 1_fsm --phase1 ChatGPT --phase2 Claude
+  
+  # Executar apenas Etapa 1 (especificação formal)
+  python generate_llm_code.py --task 1_fsm --phase1 ChatGPT --phase2 Claude --only-phase 1
+  
+  # Executar apenas Etapa 2 (código de verificação)
+  python generate_llm_code.py --task 1_fsm --phase1 ChatGPT --phase2 Claude --only-phase 2
+  
+  # Usar arquivo de configuração
+  python generate_llm_code.py --task 1_fsm --config llm_config.json --combination ChatGPT_Claude
+        """
     )
     parser.add_argument('--task', required=True, help='Nome da tarefa (ex: 1_fsm, 0_triplex)')
     parser.add_argument('--phase1', help='Nome da LLM para Etapa 1 (ex: ChatGPT, Claude)')
@@ -299,6 +314,8 @@ def main():
     parser.add_argument('--config', help='Arquivo de configuração JSON')
     parser.add_argument('--combination', help='Nome da combinação do arquivo de configuração')
     parser.add_argument('--api-keys', help='Arquivo JSON com API keys (opcional)')
+    parser.add_argument('--only-phase', type=int, choices=[1, 2], 
+                       help='Executar apenas uma etapa específica (1=Especificação Formal, 2=Código de Verificação)')
     
     args = parser.parse_args()
     
@@ -312,9 +329,22 @@ def main():
     
     # Carrega API keys se fornecido
     api_keys = {}
-    if args.api_keys and os.path.exists(args.api_keys):
-        with open(args.api_keys, 'r') as f:
-            api_keys = json.load(f)
+    if args.api_keys:
+        if os.path.exists(args.api_keys):
+            with open(args.api_keys, 'r') as f:
+                api_keys = json.load(f)
+        else:
+            print(f"⚠️  Arquivo de API keys não encontrado: {args.api_keys}")
+    else:
+        # Tenta carregar automaticamente api_keys.json do diretório do script
+        api_keys_path = os.path.join(script_dir, "api_keys.json")
+        if os.path.exists(api_keys_path):
+            with open(api_keys_path, 'r') as f:
+                api_keys = json.load(f)
+            print(f"✓ API keys carregadas de: {api_keys_path}")
+        else:
+            print(f"⚠️  Arquivo api_keys.json não encontrado em {script_dir}. "
+                  f"Usando apenas variáveis de ambiente.")
     
     # Determina configurações das LLMs
     if args.config and args.combination:
@@ -335,15 +365,15 @@ def main():
     elif args.phase1 and args.phase2:
         # Usa argumentos da linha de comando
         # Configurações padrão
-        default_configs = {
+        default_configs_phase1 = {
             'ChatGPT': {
                 'provider': 'openai',
-                'model': 'gpt-4',
+                'model': 'gpt-5',
                 'api_key_env': 'OPENAI_API_KEY'
             },
             'Claude': {
                 'provider': 'anthropic',
-                'model': 'claude-3-5-sonnet-20241022',
+                'model': 'claude-opus-4-1-20250805',
                 'api_key_env': 'ANTHROPIC_API_KEY'
             },
             'Llama': {
@@ -353,8 +383,28 @@ def main():
             }
         }
         
-        phase1_dict = default_configs.get(args.phase1, {})
-        phase2_dict = default_configs.get(args.phase2, {})
+        # Configurações para Phase 2 - Claude mais recente disponível
+        # Nota: claude-3-opus-20240229 está deprecated. Usando claude-3-5-sonnet-20240620
+        default_configs_phase2 = {
+            'ChatGPT': {
+                'provider': 'openai',
+                'model': 'gpt-5',
+                'api_key_env': 'OPENAI_API_KEY'
+            },
+            'Claude': {
+                'provider': 'anthropic',
+                'model': 'claude-opus-4-1-20250805',  # Modelo mais recente disponível
+                'api_key_env': 'ANTHROPIC_API_KEY'
+            },
+            'Llama': {
+                'provider': 'ollama',
+                'model': 'llama3.1',
+                'api_key_env': ''  # Ollama não precisa de API key
+            }
+        }
+        
+        phase1_dict = default_configs_phase1.get(args.phase1, {})
+        phase2_dict = default_configs_phase2.get(args.phase2, {})
         
         phase1_config = create_llm_config_from_dict({
             'name': args.phase1,
@@ -393,40 +443,70 @@ def main():
     print(f"Etapa 1 (Especificação Formal): {phase1_config.name}")
     print(f"Etapa 2 (Código de Verificação): {phase2_config.name}")
     print(f"Diretório de saída: {output_dir}")
+    if args.only_phase:
+        print(f"⚠️  Modo filtrado: executando apenas Etapa {args.only_phase}")
     print(f"{'='*60}")
     
+    import shutil
+    
     # Etapa 1: Gera especificação formal
-    formal_spec_path = generator.generate_formal_specification(
-        c_code_path=c_code_file,
-        reqs_path=reqs_file,
-        output_dir=output_dir
-    )
+    if not args.only_phase or args.only_phase == 1:
+        formal_spec_path = generator.generate_formal_specification(
+            c_code_path=c_code_file,
+            reqs_path=reqs_file,
+            output_dir=output_dir
+        )
+    else:
+        # Se executando apenas Etapa 2, tenta encontrar especificação existente
+        formal_spec_path = os.path.join(output_dir, "formal_specification.txt")
+        if not os.path.exists(formal_spec_path):
+            raise FileNotFoundError(
+                f"Especificação formal não encontrada em {formal_spec_path}. "
+                f"Execute a Etapa 1 primeiro ou forneça o arquivo."
+            )
+        print(f"✓ Usando especificação formal existente: {formal_spec_path}")
     
     # Copia arquivos .c e .h necessários para o diretório de saída
-    import shutil
-    if c_code_file:
-        shutil.copy(c_code_file, output_dir)
-        print(f"✓ Arquivo .c copiado para: {output_dir}")
-    if h_file:
-        shutil.copy(h_file, output_dir)
-        print(f"✓ Arquivo .h copiado para: {output_dir}")
+    if not args.only_phase or args.only_phase == 1:
+        if c_code_file:
+            shutil.copy(c_code_file, output_dir)
+            print(f"✓ Arquivo .c copiado para: {output_dir}")
+        if h_file:
+            shutil.copy(h_file, output_dir)
+            print(f"✓ Arquivo .h copiado para: {output_dir}")
     
     # Etapa 2: Gera código de verificação
-    ert_main_path = generator.generate_verification_code(
-        formal_spec_path=formal_spec_path,
-        c_code_path=c_code_file,
-        output_dir=output_dir,
-        header_files=header_files
-    )
+    if not args.only_phase or args.only_phase == 2:
+        ert_main_path = generator.generate_verification_code(
+            formal_spec_path=formal_spec_path,
+            c_code_path=c_code_file,
+            output_dir=output_dir,
+            header_files=header_files
+        )
+    else:
+        ert_main_path = os.path.join(output_dir, "ert_main.c")
+        if not os.path.exists(ert_main_path):
+            ert_main_path = None
     
     print(f"\n{'='*60}")
     print("✓ Geração concluída com sucesso!")
     print(f"{'='*60}")
-    print(f"Especificação formal: {formal_spec_path}")
-    print(f"Código de verificação: {ert_main_path}")
-    print(f"\nPara executar a verificação, use:")
-    print(f"  cd result")
-    print(f"  python run_verification.py")
+    if not args.only_phase or args.only_phase == 1:
+        print(f"Especificação formal: {formal_spec_path}")
+    if not args.only_phase or args.only_phase == 2:
+        print(f"Código de verificação: {ert_main_path}")
+    
+    if args.only_phase == 1:
+        print(f"\nPara continuar, execute a Etapa 2:")
+        print(f"  python generate_llm_code.py --task {args.task} --phase1 {phase1_config.name} --phase2 {phase2_config.name} --only-phase 2")
+    elif args.only_phase == 2:
+        print(f"\nPara executar a verificação, use:")
+        print(f"  cd result")
+        print(f"  python run_verification.py --task {args.task}")
+    else:
+        print(f"\nPara executar a verificação, use:")
+        print(f"  cd result")
+        print(f"  python run_verification.py --task {args.task}")
 
 if __name__ == "__main__":
     main()

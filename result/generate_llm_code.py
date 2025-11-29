@@ -169,10 +169,21 @@ class LLMGenerator:
         return output_path
     
     def generate_verification_code(self, formal_spec_path: str, c_code_path: str,
-                                   output_dir: str, header_files: list = None) -> str:
-        """Etapa 2: Gera ert_main.c usando phase2_llm"""
+                                   output_dir: str, header_files: list = None,
+                                   previous_errors: list = None) -> str:
+        """Etapa 2: Gera ert_main.c usando phase2_llm
+        
+        Args:
+            formal_spec_path: Caminho para a especificação formal
+            c_code_path: Caminho para o código C funcional
+            output_dir: Diretório de saída
+            header_files: Lista de arquivos header (.h)
+            previous_errors: Lista de erros encontrados em verificações anteriores
+        """
         print(f"\n{'='*60}")
         print(f"Etapa 2: Gerando código de verificação usando {self.phase2_llm.name}")
+        if previous_errors:
+            print(f"⚠️  Considerando {len(previous_errors)} erro(s) de verificações anteriores")
         print(f"{'='*60}")
         
         # Lê a especificação formal e código C
@@ -215,6 +226,22 @@ class LLMGenerator:
         with open(prompt2_path, 'r', encoding='utf-8') as f:
             prompt_template = f.read()
         
+        # Monta contexto de erros anteriores se houver
+        error_context = ""
+        if previous_errors:
+            error_context = "\n\n[Erros Encontrados em Verificações Anteriores]\n"
+            error_context += "Os seguintes erros foram encontrados durante a verificação anterior:\n"
+            error_context += "Por favor, corrija o código de verificação para evitar esses erros.\n\n"
+            for i, error in enumerate(previous_errors, 1):
+                error_context += f"Erro {i}:\n"
+                error_context += f"  Arquivo: {error.get('file', 'N/A')}\n"
+                error_context += f"  Linha: {error.get('line', 'N/A')}, Coluna: {error.get('column', 'N/A')}\n"
+                error_context += f"  Função: {error.get('function', 'N/A')}\n"
+                error_context += f"  Mensagem: {error.get('message', 'N/A')}\n\n"
+                # Adiciona o texto completo do erro se disponível
+                if 'full_text' in error:
+                    error_context += f"  Detalhes completos:\n{error['full_text']}\n\n"
+        
         # Monta o prompt completo
         full_prompt = f"""{prompt_template}
 
@@ -224,6 +251,7 @@ class LLMGenerator:
 [functional c code]
 {c_code}
 {headers_content}
+{error_context}
 """
         
         print(f"Chamando {self.phase2_llm.name} ({self.phase2_llm.model})...")

@@ -24,6 +24,56 @@ class PropertyVerifier:
             "/usr/local/MATLAB/R2024b/simulink/include/sf_runtime"
         ]
         self.results_summary = defaultdict(dict)
+    
+    def extract_violated_properties(self, verification_result_file: str) -> list:
+        """Extrai informações sobre propriedades violadas do arquivo de resultado
+        
+        Args:
+            verification_result_file: Caminho para o arquivo de resultado da verificação
+            
+        Returns:
+            Lista de dicionários contendo informações sobre cada propriedade violada
+        """
+        violated_properties = []
+        
+        if not os.path.exists(verification_result_file):
+            return violated_properties
+        
+        try:
+            with open(verification_result_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception as e:
+            print(f"Erro ao ler arquivo de resultado: {e}")
+            return violated_properties
+        
+        # Procura pela seção "Violated property:"
+        # Padrão: Violated property: seguido de informações sobre o erro
+        # Formato esperado:
+        # Violated property:
+        #   file <arquivo> line <linha> column <coluna> function <função>
+        #   <mensagem do erro>
+        #   <detalhes adicionais>
+        pattern = r'Violated property:\s*\n\s*file\s+([^\n]+)\s+line\s+(\d+)\s+column\s+(\d+)\s+function\s+([^\n]+)\s*\n\s*((?:[^\n]+(?:\n|$))*(?=\n\n|\nVERIFICATION|$))'
+        
+        matches = re.finditer(pattern, content, re.MULTILINE)
+        
+        for match in matches:
+            file_path = match.group(1).strip()
+            line = match.group(2).strip()
+            column = match.group(3).strip()
+            function = match.group(4).strip()
+            error_message = match.group(5).strip()
+            
+            violated_properties.append({
+                'file': file_path,
+                'line': line,
+                'column': column,
+                'function': function,
+                'message': error_message,
+                'full_text': match.group(0).strip()
+            })
+        
+        return violated_properties
         
     def find_esbmc_include_paths(self):
         """Find ESBMC standard include paths, especially for Windows"""

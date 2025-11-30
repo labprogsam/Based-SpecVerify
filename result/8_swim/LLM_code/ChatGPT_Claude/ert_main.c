@@ -1,10 +1,8 @@
 #include "swim_12B.h"
-#include "swim_12B.c"
 #include <math.h>
-#include <assert.h>
 
 // ESBMC assertion macro
-#define __ESBMC_assert(cond) assert(cond)
+extern void __ESBMC_assert(_Bool cond, const char *msg);
 
 // Non-deterministic functions for ESBMC
 _Bool nondet_bool(void);
@@ -87,9 +85,12 @@ int main(void) {
             expected_qcmin_disable = expected_qcmin - 28.72;
             
             // Verify outputs match expected values (with tolerance for floating point)
-            __ESBMC_assert(fp_equal(rtY.SWIM_CalAirspeedmin_kts, expected_vmin, 0.001));
-            __ESBMC_assert(fp_equal(rtY.SWIM_Qcmin_lbspft2, expected_qcmin, 0.001));
-            __ESBMC_assert(fp_equal(rtY.swimGet_QcMinDisable_lbspft2, expected_qcmin_disable, 0.001));
+            __ESBMC_assert(fp_equal(rtY.SWIM_CalAirspeedmin_kts, expected_vmin, 0.001),
+                "Property 1: SWIM_CalAirspeedmin_kts mismatch");
+            __ESBMC_assert(fp_equal(rtY.SWIM_Qcmin_lbspft2, expected_qcmin, 0.001),
+                "Property 1: SWIM_Qcmin_lbspft2 mismatch");
+            __ESBMC_assert(fp_equal(rtY.swimGet_QcMinDisable_lbspft2, expected_qcmin_disable, 0.001),
+                "Property 1: swimGet_QcMinDisable_lbspft2 mismatch");
         }
         #endif
         
@@ -110,10 +111,12 @@ int main(void) {
                 expected_warning_allowed = prev_UnitDelay_DSTATE;
             }
             
-            __ESBMC_assert(fp_equal(rtY.SWIM_ASWarningAllowed, expected_warning_allowed, 0.001));
+            __ESBMC_assert(fp_equal(rtY.SWIM_ASWarningAllowed, expected_warning_allowed, 0.001),
+                "Property 2A: SWIM_ASWarningAllowed state transition incorrect");
             
             // Verify state will be updated correctly after this cycle
-            __ESBMC_assert(fp_equal(rtDW.UnitDelay_DSTATE, rtY.SWIM_ASWarningAllowed, 0.001));
+            __ESBMC_assert(fp_equal(rtDW.UnitDelay_DSTATE, rtY.SWIM_ASWarningAllowed, 0.001),
+                "Property 2A: UnitDelay_DSTATE not updated correctly");
         }
         #endif
         
@@ -136,10 +139,12 @@ int main(void) {
                 expected_low_speed_warn = prev_UnitDelay_DSTATE_d;
             }
             
-            __ESBMC_assert(fp_equal(rtY.swimGet_AgcasLowSpeedWarn, expected_low_speed_warn, 0.001));
+            __ESBMC_assert(fp_equal(rtY.swimGet_AgcasLowSpeedWarn, expected_low_speed_warn, 0.001),
+                "Property 2B: swimGet_AgcasLowSpeedWarn incorrect");
             
             // Verify state will be updated correctly after this cycle
-            __ESBMC_assert(fp_equal(rtDW.UnitDelay_DSTATE_d, rtY.swimGet_AgcasLowSpeedWarn, 0.001));
+            __ESBMC_assert(fp_equal(rtDW.UnitDelay_DSTATE_d, rtY.swimGet_AgcasLowSpeedWarn, 0.001),
+                "Property 2B: UnitDelay_DSTATE_d not updated correctly");
         }
         #endif
         
@@ -148,8 +153,10 @@ int main(void) {
         {
             // Verify that states are properly updated after swim_12B_step
             // The current rtDW values should match the outputs that were just computed
-            __ESBMC_assert(fp_equal(rtDW.UnitDelay_DSTATE, rtY.SWIM_ASWarningAllowed, 0.001));
-            __ESBMC_assert(fp_equal(rtDW.UnitDelay_DSTATE_d, rtY.swimGet_AgcasLowSpeedWarn, 0.001));
+            __ESBMC_assert(fp_equal(rtDW.UnitDelay_DSTATE, rtY.SWIM_ASWarningAllowed, 0.001),
+                "Property 3: UnitDelay_DSTATE state persistence incorrect");
+            __ESBMC_assert(fp_equal(rtDW.UnitDelay_DSTATE_d, rtY.swimGet_AgcasLowSpeedWarn, 0.001),
+                "Property 3: UnitDelay_DSTATE_d state persistence incorrect");
         }
         #endif
         
@@ -162,7 +169,8 @@ int main(void) {
                                            (!rtU.olcGet_AgcasInterlocks);
                 if (gating_could_enable) {
                     // Even if other conditions are met, warning should hold previous value when not allowed
-                    __ESBMC_assert(fp_equal(rtY.swimGet_AgcasLowSpeedWarn, prev_UnitDelay_DSTATE_d, 0.001));
+                    __ESBMC_assert(fp_equal(rtY.swimGet_AgcasLowSpeedWarn, prev_UnitDelay_DSTATE_d, 0.001),
+                        "Property 4: Warning should hold previous value when not allowed");
                 }
             }
         }
@@ -173,7 +181,8 @@ int main(void) {
         {
             // When landing gear/flap is not deployed, warning should never be allowed
             if (!rtU.diGet_S_LandingGearAltFlap) {
-                __ESBMC_assert(rtY.SWIM_ASWarningAllowed == 0.0);
+                __ESBMC_assert(fp_equal(rtY.SWIM_ASWarningAllowed, 0.0, 0.001),
+                    "Property 5: Landing gear interlock failed");
             }
         }
         #endif
@@ -185,7 +194,8 @@ int main(void) {
             real_T enable_threshold = rtY.SWIM_Qcmin_lbspft2;
             real_T disable_threshold = rtY.swimGet_QcMinDisable_lbspft2;
             
-            __ESBMC_assert(fp_equal(enable_threshold - disable_threshold, 28.72, 0.001));
+            __ESBMC_assert(fp_equal(enable_threshold - disable_threshold, 28.72, 0.001),
+                "Property 6: Hysteresis threshold incorrect");
         }
         #endif
         
@@ -199,13 +209,16 @@ int main(void) {
             vmin_cat_other = 1.33694 * sqrt(rtU.muxGet_T_Mux_AircraftGrossWeigh) + 10.0;
             
             if (rtU.diGet_S_CatSwitchPosition == 0) {
-                __ESBMC_assert(fp_equal(rtY.SWIM_CalAirspeedmin_kts, vmin_cat0, 0.001));
+                __ESBMC_assert(fp_equal(rtY.SWIM_CalAirspeedmin_kts, vmin_cat0, 0.001),
+                    "Property 7: CAT 0 minimum airspeed incorrect");
             } else {
-                __ESBMC_assert(fp_equal(rtY.SWIM_CalAirspeedmin_kts, vmin_cat_other, 0.001));
+                __ESBMC_assert(fp_equal(rtY.SWIM_CalAirspeedmin_kts, vmin_cat_other, 0.001),
+                    "Property 7: CAT III minimum airspeed incorrect");
             }
             
             // CAT position 0 should always result in lower minimum airspeed
-            __ESBMC_assert(vmin_cat0 <= vmin_cat_other);
+            __ESBMC_assert(vmin_cat0 <= vmin_cat_other,
+                "Property 7: CAT 0 should have lower minimum airspeed than CAT III");
         }
         #endif
         
@@ -213,10 +226,14 @@ int main(void) {
         // Requirement 8: State initialization and bounds
         {
             // States should only be 0.0 or 1.0 (as they represent boolean conditions)
-            __ESBMC_assert(rtDW.UnitDelay_DSTATE == 0.0 || rtDW.UnitDelay_DSTATE == 1.0);
-            __ESBMC_assert(rtDW.UnitDelay_DSTATE_d == 0.0 || rtDW.UnitDelay_DSTATE_d == 1.0);
-            __ESBMC_assert(rtY.SWIM_ASWarningAllowed == 0.0 || rtY.SWIM_ASWarningAllowed == 1.0);
-            __ESBMC_assert(rtY.swimGet_AgcasLowSpeedWarn == 0.0 || rtY.swimGet_AgcasLowSpeedWarn == 1.0);
+            __ESBMC_assert(fp_equal(rtDW.UnitDelay_DSTATE, 0.0, 0.001) || fp_equal(rtDW.UnitDelay_DSTATE, 1.0, 0.001),
+                "Property 8: UnitDelay_DSTATE out of bounds");
+            __ESBMC_assert(fp_equal(rtDW.UnitDelay_DSTATE_d, 0.0, 0.001) || fp_equal(rtDW.UnitDelay_DSTATE_d, 1.0, 0.001),
+                "Property 8: UnitDelay_DSTATE_d out of bounds");
+            __ESBMC_assert(fp_equal(rtY.SWIM_ASWarningAllowed, 0.0, 0.001) || fp_equal(rtY.SWIM_ASWarningAllowed, 1.0, 0.001),
+                "Property 8: SWIM_ASWarningAllowed out of bounds");
+            __ESBMC_assert(fp_equal(rtY.swimGet_AgcasLowSpeedWarn, 0.0, 0.001) || fp_equal(rtY.swimGet_AgcasLowSpeedWarn, 1.0, 0.001),
+                "Property 8: swimGet_AgcasLowSpeedWarn out of bounds");
         }
         #endif
         

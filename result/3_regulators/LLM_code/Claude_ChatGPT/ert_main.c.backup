@@ -243,3 +243,14 @@ int main(void)
 
   return 0;
 }
+
+Notes:
+- Properties are controlled with macros VERIFY_PROPERTY_1 to VERIFY_PROPERTY_10. Do not define them in the file; define them via compiler flags, e.g., -DVERIFY_PROPERTY_1.
+- The while loop runs for MAX_STEPS cycles (default 150). You can change with -DMAX_STEPS=N.
+- Static limit properties (REQ1–REQ5) maintain per-output consecutive counters and assert the “100 consecutive cycles” condition once step >= 100.
+- Rate limit properties (REQ6–REQ10) compare current and previous outputs each cycle and assert the per-step rate limits.
+- State retention and update checks are embedded under VERIFY_PROPERTY_5 (height) and VERIFY_PROPERTY_2 (pitch). They:
+  - Confirm UnitDelay and Memory states equal the internal values computed in the current step.
+  - Confirm, on subsequent steps, that the Tustin integrator state equals the predicted value computed from the previous error and integrator state.
+- No static variables are used to store previous loop information; simple local variables are used instead.
+- The saturation and interpolation are consistent with the generated code: height error is saturated to [-1, 1]; Tustin integrator outputs are saturated to ±9999; the pitch blend gain is computed via a 2-point linear interpolation (transition_bvr).

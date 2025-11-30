@@ -1,15 +1,20 @@
-Below is an assertion-based ERT main harness that drives NLGuidance_12B_step(), uses nondeterministic inputs, and verifies each requirement with __ESBMC_assert under controllable preprocessing macros VERIFY_PROPERTY_1 .. VERIFY_PROPERTY_7. It uses a bounded while loop, maintains previous output without static storage, and places all property-run code in main.
-
-File: ert_main.c
-
 #include <math.h>
 #include "NLGuidance_12B.h"
+#include "rtwtypes.h"
 
 /* ESBMC nondeterministic generators */
 extern double nondet_double(void);
 extern _Bool nondet_bool(void);
 
+/* ESBMC assertion macro */
+#ifndef __ESBMC_assert
+#define __ESBMC_assert(cond, ...) do { if (!(cond)) { __builtin_abort(); } } while(0)
+#endif
+
 /* ESBMC assume is available as a builtin; prototype not required in ESBMC */
+#ifndef __ESBMC_assume
+#define __ESBMC_assume(cond) do { if (!(cond)) { __builtin_abort(); } } while(0)
+#endif
 
 /* Configuration macros (can be overridden at compile time) */
 #ifndef LOOP_MAX

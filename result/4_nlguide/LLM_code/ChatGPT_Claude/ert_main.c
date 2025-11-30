@@ -255,4 +255,22 @@ int main() {
         
 #ifdef VERIFY_PROPERTY_6
         // Requirement 6: Output consistent aim point - magnitude change limitation
-        // Note: This requirement cannot be fully verified as Vt is not present
+        if (loop > 0) {
+            double dy[3];
+            dy[0] = rtY.yout[0] - prev_yout[0];
+            dy[1] = rtY.yout[1] - prev_yout[1];
+            dy[2] = rtY.yout[2] - prev_yout[2];
+            
+            double dy_mag = vector_magnitude(dy);
+            // Note: Vt is not available in the model, so we use Vv only as approximation
+            double Vv_mag_req6 = vector_magnitude(rtU.Vv);
+            double bound = Vv_mag_req6 * T;
+            __ESBMC_assert(dy_mag <= bound);
+        }
+#endif
+        
+        loop++;
+    }
+    
+    return 0;
+}

@@ -1,3 +1,7 @@
+Here is an assertion-based ert_main.c that uses ESBMC to verify the listed requirements. It uses __ESBMC_assert, nondet generators, and preprocessing macros VERIFY_PROPERTY_1A ... VERIFY_PROPERTY_4B to control which requirements are checked. It verifies outputs after every loop iteration and also checks that previous-state variables are updated correctly each step (UnitDelay_DSTATE keeps previous cmd; UnitDelay1_DSTATE keeps previous yout). No static variables are used to store previous loop information.
+
+Save as ert_main.c.
+
 #include "integrator_12B.h"
 #include <math.h>
 
@@ -331,3 +335,10 @@ int main(void)
 
   return 0;
 }
+
+Notes:
+- Use -DVERIFY_PROPERTY_1A (or 1B, 1C, 1D, 1E, 2A, 2B, 3, 4A, 4B) to select which requirement to verify with ESBMC.
+- The program verifies state persistence after each step in every block, per your request to check whether values keep previous state.
+- No static variables are used for previous-state information; local variables are used where needed.
+- For floating comparisons that should be exact in the model (like reset paths and unsaturated equality), a very small EPS is used to be robust to double rounding.
+- For 4a and 4b, a tolerance of 0.1 is enforced as requested.

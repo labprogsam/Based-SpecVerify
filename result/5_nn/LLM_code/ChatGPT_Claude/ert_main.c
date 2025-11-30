@@ -246,25 +246,3 @@ int main_random_walk(void) {
     return 0;
 }
 #endif
-# Verify Property 1
-esbmc ert_main.c -DVERIFY_PROPERTY_1 --no-bounds-check --no-pointer-check
-
-# Verify Property 2  
-esbmc ert_main.c -DVERIFY_PROPERTY_2 --no-bounds-check --no-pointer-check
-
-# Verify Property 3
-esbmc ert_main.c -DVERIFY_PROPERTY_3 --no-bounds-check --no-pointer-check
-
-# Verify Property 4
-esbmc ert_main.c -DVERIFY_PROPERTY_4 --no-bounds-check --no-pointer-check
-
-# Verify with specific scenarios
-esbmc ert_main.c -DVERIFY_WITH_SCENARIOS -DVERIFY_PROPERTY_1 --no-bounds-check --no-pointer-check
-
-# Verify with random walk for derivatives
-esbmc ert_main.c -DVERIFY_RANDOM_WALK -DVERIFY_PROPERTY_3 --no-bounds-check --no-pointer-check
-- Maintains previous state values without static variables
-- Implements all four requirements as separate properties
-- Uses preprocessing macros to control which properties to verify
-- Includes multiple verification strategies (general loop, specific scenarios, random walk)
-- Properly handles the stateless nature of the neural network (no UnitDelay)

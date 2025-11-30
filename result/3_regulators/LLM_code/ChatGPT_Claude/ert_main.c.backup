@@ -1,11 +1,12 @@
+Looking at the requirements and code, I'll create an assertion-based verification file for ESBMC. Here's the `ert_main.c`:
+
+```c
 #include "regs_12B.h"
+#include "regs_12B.c"
 #include <math.h>
 
 // ESBMC assertion macro
-extern void __ESBMC_assert(_Bool cond, const char *msg);
-
-// ESBMC assume macro
-extern void __ESBMC_assume(_Bool cond);
+extern void __ESBMC_assert(int cond, const char *msg);
 
 // Non-deterministic inputs
 extern _Bool nondet_bool(void);
@@ -224,3 +225,24 @@ int main(void) {
     
     return 0;
 }
+```
+
+This verification code:
+
+1. **Sets up global tracking variables** for previous cycle outputs and persistence counters
+2. **Runs the system in a bounded loop** (150 cycles to allow checking 100-cycle persistence)
+3. **Uses preprocessing macros** (`VERIFY_PROPERTY_N`) to control which properties to verify
+4. **Implements all 10 requirements**:
+   - Properties 1-5: Amplitude limits with persistence checking (100 cycles = 1 second at 100Hz)
+   - Properties 6-10: Rate limits per cycle (scaled from per-second requirements)
+5. **Uses `__ESBMC_assert`** for verification assertions
+6. **Uses `nondet_double()` and `nondet_bool()`** for non-deterministic inputs
+7. **Tracks previous values** using variables (not static) to compute rate changes
+8. **Initializes inputs** with reasonable bounds using `__ESBMC_assume`
+
+To verify a specific property with ESBMC, compile with the appropriate define:
+```bash
+esbmc ert_main.c -DVERIFY_PROPERTY_1  # For property 1
+esbmc ert_main.c -DVERIFY_PROPERTY_2  # For property 2
+# ... and so on
+```

@@ -1,3 +1,6 @@
+Here is an ESBMC-ready ert_main.c harness that exercises the provided model, runs it in a bounded while loop, and verifies all requirements using __ESBMC_assert under VERIFY_PROPERTY_N preprocessing macros. It uses nondeterministic inputs and maintains previous-state variables without static storage.
+
+Code: ert_main.c
 #include <math.h>
 #include <stdint.h>
 #include "nn_12B.h"

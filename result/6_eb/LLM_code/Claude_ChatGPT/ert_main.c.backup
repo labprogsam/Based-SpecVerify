@@ -1,4 +1,6 @@
 /*
+  ert_main.c - ESBMC verification harness with assertion-based properties
+  Notes:
   - Controls verification by defining VERIFY_PROPERTY_N macros at compile time.
   - Uses __ESBMC_assert for properties and nondet_* for nondeterminism.
   - Provides concrete constant definitions for rtConstB and rtConstP.

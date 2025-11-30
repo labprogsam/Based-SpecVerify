@@ -150,15 +150,3 @@ int main(void) {
     
     return 0;
 }
-- Uses preprocessing macros (`#ifdef VERIFY_PROPERTY_N`) to control which properties to verify
-- Runs the system in a while loop with reasonable iterations
-- Saves previous state values (without using static variables)
-- Verifies properties after each `EB_12B_step()` execution
-- Uses `__ESBMC_assert()` for verification conditions
-
-To verify each property with ESBMC, compile with the appropriate define:
-esbmc ert_main.c -DVERIFY_PROPERTY_1
-esbmc ert_main.c -DVERIFY_PROPERTY_2
-esbmc ert_main.c -DVERIFY_PROPERTY_3
-esbmc ert_main.c -DVERIFY_PROPERTY_4
-esbmc ert_main.c -DVERIFY_PROPERTY_5

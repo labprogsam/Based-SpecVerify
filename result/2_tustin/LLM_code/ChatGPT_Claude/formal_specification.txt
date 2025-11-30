@@ -1,0 +1,337 @@
+[integrator_12B_analysis.txt]
+
+1. State Variable Mapping
+- Persistent state (DW)
+  - rtDW.UnitDelay_DSTATE
+    - Possible values: any real_T
+    - Meaning: xinpv in requirements terminology. Holds the previous cycle’s input rtU.cmd. Used as the “previous input” term in the Tustin formula.
+    - CLEAR: UnitDelay is updated after integrator_12B_step() with rtU.cmd (the current cycle’s rtU.cmd).
+  - rtDW.UnitDelay1_DSTATE
+    - Possible values: any real_T
+    - Meaning: ypv in requirements terminology. Holds the previous cycle’s output after limiting. Used as the “previous output” term in the Tustin formula.
+    - CLEAR: UnitDelay1 is updated after integrator_12B_step() with rtY.yout (the limited output computed this cycle).
+
+- External inputs (ExtU)
+  - rtU.cmd
+    - Possible values: any real_T
+    - Meaning: xin in requirements terminology; the input signal to be integrated.
+  - rtU.T
+    - Possible values: any real_T
+    - Meaning: sample time (delta time).
+  - rtU.TL
+    - Possible values: any real_T
+    - Meaning: Top Limit bound.
+  - rtU.BL
+    - Possible values: any real_T
+    - Meaning: Bottom Limit bound.
+  - rtU.reset
+    - Possible values: boolean_T
+    - Meaning: Reset control; when true, the pre-limit value candidate is set to the initial condition.
+  - rtU.ic
+    - Possible values: any real_T
+    - Meaning: Initial condition for output when reset is asserted.
+
+- External outputs (ExtY)
+  - rtY.yout
+    - Possible values: any real_T
+    - Meaning: Output signal; the Tustin integrated value after applying limiting.
+
+- Local temporaries (per-step)
+  - rtb_RelationalOperator: boolean_T = (rtU.TL < rtU.BL).
+    - Meaning: detects off-nominal limit ordering and triggers swap behavior.
+  - rtb_Switch1: real_T
+    - Meaning: working variable used to hold limit values and the final limited output value. Sequence:
+      - Initially set to max(rtU.TL, rtU.BL).
+      - Possibly replaced with min(rtU.TL, rtU.BL) for lower-bound comparison.
+      - Finally becomes the limited output and is assigned to rtY.yout.
+  - rtb_Switch: real_T
+    - Meaning: pre-limit candidate output. Equals rtU.ic if rtU.reset is true; otherwise equals the Tustin formula result before limiting.
+
+- State transitions and conditions
+  - Pre-limit candidate computation:
+    - If rtU.reset is true: rtb_Switch = rtU.ic.
+    - Else: rtb_Switch = 0.5 * rtU.T * (rtU.cmd + rtDW.UnitDelay_DSTATE) + rtDW.UnitDelay1_DSTATE.
+      - Data used from previous cycle end: rtDW.UnitDelay_DSTATE (prior rtU.cmd), rtDW.UnitDelay1_DSTATE (prior yout).
+  - Limit handling with swap:
+    - Compute rtb_RelationalOperator = (rtU.TL < rtU.BL).
+    - Set rtb_Switch1 = max(rtU.TL, rtU.BL).
+    - If rtb_Switch > rtb_Switch1, final yout = rtb_Switch1 (upper clamp).
+    - Else:
+      - Set rtb_Switch1 = min(rtU.TL, rtU.BL).
+      - If rtb_Switch < rtb_Switch1, final yout = rtb_Switch1 (lower clamp).
+      - Else final yout = rtb_Switch (within bounds).
+  - Update sequence (end of cycle, after output is computed):
+    - rtY.yout = final limited value (rtb_Switch1).
+    - rtDW.UnitDelay1_DSTATE = rtY.yout. CLEAR: UnitDelay1 is updated after global step with rtY.yout.
+    - rtDW.UnitDelay_DSTATE = rtU.cmd. CLEAR: UnitDelay is updated after global step with rtU.cmd.
+
+- Update sequences (within a single integrator_12B_step call)
+  - Order of operations:
+    1) Evaluate rtb_RelationalOperator = (rtU.TL < rtU.BL).
+    2) rtb_Switch1 := max(rtU.TL, rtU.BL).
+    3) Compute pre-limit candidate:
+       - If rtU.reset: rtb_Switch := rtU.ic
+       - Else: rtb_Switch := 0.5*rtU.T*(rtU.cmd + rtDW.UnitDelay_DSTATE) + rtDW.UnitDelay1_DSTATE
+    4) Apply upper limit check; if not exceeded, switch to lower limit check:
+       - If rtb_Switch > max: yout = max
+       - Else set rtb_Switch1 := min
+         - If rtb_Switch < min: yout = min
+         - Else yout = rtb_Switch
+    5) Write rtY.yout
+    6) Update states:
+       - rtDW.UnitDelay1_DSTATE := rtY.yout
+       - rtDW.UnitDelay_DSTATE := rtU.cmd
+  - Critical dependencies:
+    - The Tustin computation uses the previous cycle states only: rtDW.UnitDelay_DSTATE (xinpv) and rtDW.UnitDelay1_DSTATE (ypv).
+    - Limiting uses current cycle inputs and pre-limit candidate.
+
+2. For each requirement
+
+Note on timing: Each cycle corresponds to one call to integrator_12B_step(). All checks and verifications are performed at cycle end (after integrator_12B_step() returns), per the provided notes.
+
+2.1 Requirement 1a
+- Statement: When reset is true and BL <= ic <= TL, yout shall equal ic.
+- Relevant state variables
+  - rtDW.UnitDelay_DSTATE (used only if not reset; with reset it’s bypassed)
+  - rtDW.UnitDelay1_DSTATE (not used in pre-limit when reset; receives new yout at update)
+- Initial conditions
+  - No specific state required; static DW defaults are zero-initialized unless previously updated by prior cycles.
+- Input triggers
+  - rtU.reset == true
+  - rtU.TL >= rtU.BL
+  - rtU.ic >= rtU.BL and rtU.ic <= rtU.TL
+- Expected state changes
+  - rtY.yout == rtU.ic at the end of the cycle.
+  - rtDW.UnitDelay1_DSTATE updated after the step to rtU.ic.
+  - rtDW.UnitDelay_DSTATE updated after the step to rtU.cmd.
+- Output verification
+  - At cycle end: rtY.yout == rtU.ic.
+- Timing requirements
+  - Single-cycle effect; verify at the end of the same cycle in which rtU.reset is true.
+
+2.2 Requirement 1b
+- Statement: When reset is true and TL >= BL and ic >= TL, yout shall equal TL.
+- Relevant state variables
+  - rtDW.UnitDelay1_DSTATE updated to the saturated output.
+- Initial conditions
+  - None required beyond inputs.
+- Input triggers
+  - rtU.reset == true
+  - rtU.TL >= rtU.BL
+  - rtU.ic >= rtU.TL
+- Expected state changes
+  - rtY.yout == rtU.TL (upper saturation).
+  - rtDW.UnitDelay1_DSTATE updated after the step to rtU.TL.
+  - rtDW.UnitDelay_DSTATE updated after the step to rtU.cmd.
+- Output verification
+  - At cycle end: rtY.yout == rtU.TL.
+- Timing requirements
+  - Single-cycle effect.
+
+2.3 Requirement 1c
+- Statement: When reset is true and TL >= BL and ic <= BL, yout shall equal BL.
+- Relevant state variables
+  - rtDW.UnitDelay1_DSTATE updated to the saturated output.
+- Initial conditions
+  - None required beyond inputs.
+- Input triggers
+  - rtU.reset == true
+  - rtU.TL >= rtU.BL
+  - rtU.ic <= rtU.BL
+- Expected state changes
+  - rtY.yout == rtU.BL (lower saturation).
+  - rtDW.UnitDelay1_DSTATE updated after the step to rtU.BL.
+  - rtDW.UnitDelay_DSTATE updated after the step to rtU.cmd.
+- Output verification
+  - At cycle end: rtY.yout == rtU.BL.
+- Timing requirements
+  - Single-cycle effect.
+
+2.4 Requirement 1d
+- Statement (off-nominal): When reset is true, TL < BL, and ic >= BL and ic <= TL, yout shall equal BL.
+- Code-based analysis
+  - The antecedent ic >= BL and ic <= TL with TL < BL is generally unsatisfiable except when BL == TL (contradicts TL < BL). In the implemented code, with TL < BL, the upper bound is BL and the lower bound is TL. Reset assigns pre-limit candidate = ic, then the limiter saturates to [TL, BL].
+- Relevant state variables
+  - rtDW.UnitDelay1_DSTATE updated to the limited yout.
+- Initial conditions
+  - None required beyond inputs.
+- Input triggers
+  - rtU.reset == true
+  - rtU.TL < rtU.BL
+  - rtU.ic between TL and BL will pass through; above BL clamps to BL; below TL clamps to TL.
+- Expected state changes
+  - If ic > BL then yout == BL; if ic < TL then yout == TL; if TL <= ic <= BL then yout == ic.
+  - rtDW.UnitDelay1_DSTATE updated after the step to rtY.yout; rtDW.UnitDelay_DSTATE updated after the step to rtU.cmd.
+- Output verification
+  - At cycle end: rtY.yout equals the clamp of ic to [min(rtU.TL, rtU.BL), max(rtU.TL, rtU.BL)].
+- Timing requirements
+  - Single-cycle effect.
+
+2.5 Requirement 1e
+- Statement (off-nominal): When reset is true, TL < BL, and ic <= TL and ic >= BL, yout shall equal TL.
+- Code-based analysis
+  - The antecedent ic <= TL and ic >= BL with TL < BL is generally unsatisfiable except when BL == TL (contradicts TL < BL). Implementation behavior is the same as 1d: saturation to [TL, BL] with TL as the lower clamp and BL as the upper clamp.
+- Relevant state variables
+  - rtDW.UnitDelay1_DSTATE updated to the limited yout.
+- Initial conditions
+  - None required beyond inputs.
+- Input triggers
+  - rtU.reset == true
+  - rtU.TL < rtU.BL
+- Expected state changes
+  - yout equals clamp of ic into [min(rtU.TL, rtU.BL), max(rtU.TL, rtU.BL)].
+  - States updated as in 1d.
+- Output verification
+  - At cycle end: verify correct clamping based on ic and swapped bounds.
+- Timing requirements
+  - Single-cycle effect.
+
+2.6 Requirement 2a
+- Statement: If TL >= BL, yout shall satisfy BL <= yout <= TL.
+- Relevant state variables
+  - rtDW.UnitDelay1_DSTATE reflects limited output from previous cycle; state values do not prevent limiting.
+- Initial conditions
+  - None required beyond inputs.
+- Input triggers
+  - rtU.TL >= rtU.BL
+- Expected state changes
+  - None required; limiter guarantees the bound every cycle.
+  - States updated with limited yout and current rtU.cmd after the step.
+- Output verification
+  - At cycle end: rtY.yout ∈ [rtU.BL, rtU.TL].
+- Timing requirements
+  - Holds every cycle.
+
+2.7 Requirement 2b
+- Statement: If TL < BL (off-nominal), yout shall satisfy TL <= yout <= BL.
+- Relevant state variables
+  - As above; limiter includes swap logic.
+- Initial conditions
+  - None required beyond inputs.
+- Input triggers
+  - rtU.TL < rtU.BL
+- Expected state changes
+  - None required; limiter guarantees the bound every cycle with swapped limits.
+- Output verification
+  - At cycle end: rtY.yout ∈ [rtU.TL, rtU.BL] (since TL is the effective lower bound and BL the upper bound).
+- Timing requirements
+  - Holds every cycle.
+
+2.8 Requirement 3-1 (specific constrained case from spec)
+- Statement: Under normal operation with TL==10, BL==-10, |rtU.cmd|<10, rtU.T==0.1, rtU.ic==0.0 (and not in reset), yout == 0.5*T*(xin{t}+xin{t-1}) + yout{t-1}.
+- Relevant state variables
+  - rtDW.UnitDelay_DSTATE (xinpv) and rtDW.UnitDelay1_DSTATE (ypv).
+- Initial conditions
+  - Not in reset during the entire interval under verification.
+- Input triggers
+  - rtU.reset == false
+  - rtU.TL == 10, rtU.BL == -10
+  - fabs(rtU.cmd) < 10.0
+  - rtU.T == 0.1
+  - rtU.ic == 0.0 (unused when not reset; included for completeness)
+  - Unclamped result must be within [-10, 10] to avoid saturation.
+- Expected state changes
+  - rtY.yout equals the Tustin formula result (no change due to limit because within bounds).
+  - States updated after the step: UnitDelay1_DSTATE := rtY.yout; UnitDelay_DSTATE := rtU.cmd.
+- Output verification
+  - At cycle end: rtY.yout == 0.5*rtU.T*(rtU.cmd + rtDW.UnitDelay_DSTATE) + rtDW.UnitDelay1_DSTATE.
+- Timing requirements
+  - Holds each cycle while the above conditions are met.
+
+2.9 Requirement 3-2 (general normal-operation, TL >= BL, unclamped)
+- Statement: If not reset, TL >= BL, and the computed pre-limit value lies within [BL, TL], yout equals the Tustin formula result.
+- Relevant state variables
+  - rtDW.UnitDelay_DSTATE, rtDW.UnitDelay1_DSTATE.
+- Initial conditions
+  - Not in reset.
+- Input triggers
+  - rtU.reset == false
+  - rtU.TL >= rtU.BL
+  - Let v = 0.5*rtU.T*(rtU.cmd + rtDW.UnitDelay_DSTATE) + rtDW.UnitDelay1_DSTATE
+  - v >= rtU.BL and v <= rtU.TL
+- Expected state changes
+  - rtY.yout == v
+  - States updated after the step as usual.
+- Output verification
+  - At cycle end: equality to v.
+- Timing requirements
+  - Per cycle when conditions hold.
+
+2.10 Requirement 3-3 (normal operation with saturation)
+- Statement: If not reset and pre-limit value v lies outside the limit range, yout equals the nearest bound after limit swap handling.
+- Relevant state variables
+  - rtDW.UnitDelay_DSTATE, rtDW.UnitDelay1_DSTATE.
+- Initial conditions
+  - Not in reset.
+- Input triggers
+  - rtU.reset == false
+  - Compute v as above
+  - If rtU.TL >= rtU.BL:
+    - If v > rtU.TL: yout == rtU.TL
+    - Else if v < rtU.BL: yout == rtU.BL
+  - If rtU.TL < rtU.BL:
+    - Effective lower = rtU.TL, upper = rtU.BL
+    - If v > rtU.BL: yout == rtU.BL
+    - Else if v < rtU.TL: yout == rtU.TL
+- Expected state changes
+  - rtDW.UnitDelay1_DSTATE updated to the saturated yout.
+  - rtDW.UnitDelay_DSTATE updated to rtU.cmd.
+- Output verification
+  - At cycle end: rtY.yout equals the correct saturated bound.
+- Timing requirements
+  - Per cycle when saturation occurs.
+
+2.11 Requirement 4a (integration accuracy with constant input)
+- Statement: With rtU.cmd == 1.0 for all cycles, rtU.T == 0.1 for all cycles, no reset, and no saturation (TL >= BL and bounds not violated), after 10 seconds at 10 Hz (101 samples including t=0), yout{k} ≈ k*T within ±0.1, for k = 0..100.
+- Relevant state variables
+  - rtDW.UnitDelay_DSTATE and rtDW.UnitDelay1_DSTATE, evolving each cycle as per updates.
+- Initial conditions
+  - No reset at any time (rtU.reset == false for all cycles).
+  - TL and BL chosen so yout never saturates.
+  - C static storage default implies initial rtDW.* are 0 on first cycle unless otherwise set by test harness.
+- Input triggers
+  - For all cycles in the test window: rtU.cmd == 1.0, rtU.T == 0.1, rtU.reset == false, rtU.TL >= rtU.BL, and result within bounds.
+- Expected state changes
+  - States update each cycle with the computed yout and current rtU.cmd.
+- Output verification
+  - At the end of cycle k (k from 0 to 100 inclusive): |rtY.yout - k*rtU.T| <= 0.1.
+- Timing requirements
+  - Verify at each cycle end for k = 0..100.
+
+2.12 Requirement 4b (integration accuracy with cosine input, sine output)
+- Statement: With the provided rtU.cmd sequence approximating cos(t) at dt = 0.1 seconds for 0..10 s (101 samples), TL >= BL, never in reset, and no saturation, yout{k} ≈ sin(t_k) within ±0.1 for k = 0..100.
+- Relevant state variables
+  - rtDW.UnitDelay_DSTATE and rtDW.UnitDelay1_DSTATE.
+- Initial conditions
+  - No reset at any time (rtU.reset == false).
+  - TL and BL chosen so yout never saturates.
+  - Initial states default to zero unless explicitly initialized otherwise by the test harness.
+- Input triggers
+  - For all cycles: rtU.T == 0.1, rtU.reset == false, rtU.TL >= rtU.BL, yout remains strictly within bounds so no saturation occurs.
+  - rtU.cmd sequence equals the provided discrete cos(t) values at each cycle index.
+- Expected state changes
+  - States update as in the algorithm; previous input/output used each step.
+- Output verification
+  - At cycle end k, verify |rtY.yout - sin(t_k)| <= 0.1 against the given expected sequence values for k = 0..100.
+- Timing requirements
+  - Verify at each cycle end for k = 0..100.
+
+3. Timing Considerations
+- Update sequences
+  - All state checks occur after integrator_12B_step() returns (end of cycle).
+  - The Tustin computation in a given cycle uses:
+    - rtDW.UnitDelay_DSTATE: the rtU.cmd captured at the end of the previous cycle (xinpv).
+    - rtDW.UnitDelay1_DSTATE: the rtY.yout from the end of the previous cycle (ypv).
+  - CLEAR: After integrator_12B_step():
+    - rtDW.UnitDelay1_DSTATE is updated with rtY.yout (the final limited output).
+    - rtDW.UnitDelay_DSTATE is updated with rtU.cmd (the current input sample).
+
+- Critical dependencies
+  - The order of operations ensures “previous” values are from the prior cycle end.
+  - Limit swapping is handled dynamically each cycle via rtb_RelationalOperator.
+  - Reset bypasses the Tustin formula by setting the pre-limit candidate to rtU.ic, then applies the same limiting path.
+
+- Cycle requirements
+  - One global step call of integrator_12B_step() equals one cycle.
+  - All requirement verifications should sample signals and states at the end of each cycle.
+  - For accuracy tests (Req 4a/4b), validate each specified cycle index after the step call completes.

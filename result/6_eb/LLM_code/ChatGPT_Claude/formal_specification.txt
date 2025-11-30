@@ -1,0 +1,190 @@
+EB_12B_static_analysis.txt
+
+1. State Variable Mapping
+- Variable names
+  - rtU.B_j (external input)
+    - Possible values: real_T[15] (3x5), column-major: element at row r, col c is rtU.B_j[3*c + r]
+    - Meaning: Control effectiveness matrix B of size 3x5
+  - rtConstB.Divide (constant)
+    - Possible values: real_T[25] (5x5), column-major
+    - Meaning: Inverse weighting matrix (acts as inv(Wp)); used to form B*inv(Wp)*B' and P
+  - rtConstP.Const_Value (constant)
+    - Possible values: real_T[25] (5x5), column-major
+    - Meaning: Weighting matrix Wp used in cost J = u' Wp u
+  - rtConstP.Const2_Value (constant)
+    - Possible values: real_T[3] (3x1)
+    - Meaning: Desired acceleration error vector d (3x1); used in Buminusd = B*u - d
+  - rtConstP.Constant4_Value (constant)
+    - Possible values: real_T[9] (3x3), likely diagonal regularization
+    - Meaning: Ridge diagonalization term added to B*inv(Wp)*B' when near-singular
+  - rtY.P_k (external output)
+    - Possible values: real_T[15] (5x3)
+    - Meaning: Transformation gain matrix P = inv(Wp)*B'*(B*inv(Wp)*B' + ridge)^{-1}
+  - rtY.check (external output)
+    - Possible values: real_T[9] (3x3)
+    - Meaning: Inversion check matrix = (B*inv(Wp)*B') * yinv; expected ≈ I3 when ridge_on == false
+  - rtY.yinv (external output)
+    - Possible values: real_T[9] (3x3)
+    - Meaning: Inverse of (B*inv(Wp)*B' + ridge)
+  - rtY.u (external output)
+    - Possible values: real_T[5] (5x1)
+    - Meaning: Control effector solution u = P * d (with d implicitly [3; -1; 2] by code path)
+  - rtY.Buminusd (external output)
+    - Possible values: real_T[3] (3x1)
+    - Meaning: Constraint error B*u - d
+  - rtY.J (external output)
+    - Possible values: real_T (1x1)
+    - Meaning: Total cost J = u' * Wp * u
+  - rtY.ridge_on (external output)
+    - Possible values: boolean_T {false, true}
+    - Meaning: Ridge regression activation flag; true when det(B*inv(Wp)*B') <= 1.0E-12
+
+- Derived internal temporaries (implementation details)
+  - rtb_Product7 (5x3): rtConstB.Divide * rtU.B_j' = inv(Wp) * B'
+  - rtb_Product1_f (3x3): B*inv(Wp)*B'
+  - rtb_Product1_a (3x3): rtb_Product1_f + (ridge_on ? rtConstP.Constant4_Value : 0)
+  - rtb_Divide1 (3x3): inverse of rtb_Product1_a; equals rtY.yinv
+  - rtb_MathFunction2 (5x3): rtb_Product7 * rtb_Divide1; equals rtY.P_k
+  - rtb_Product3_a (5x1): u = P * d computed in code as P*[3; -1; 2]
+
+- State transitions and conditions
+  - ridge_on toggle condition:
+    - Compute detM = det(B*inv(Wp)*B')
+    - If detM <= 1.0E-12 then ridge_on = true and ridge term rtConstP.Constant4_Value is added to M prior to inversion.
+    - Else ridge_on = false and no ridge is added.
+  - No other states or latches exist; DW rtDW is declared but unused.
+
+- Update sequences (within one EB_12B_step cycle)
+  1) Form M = B*inv(Wp)*B' (rtb_Product1_f)
+  2) ridge_on = (det(M) <= 1e-12)
+  3) Y = M + (ridge_on ? Constant4_Value : 0) (rtb_Product1_a)
+  4) yinv = inv(Y) (rtb_Divide1 => rtY.yinv)
+  5) P = inv(Wp)*B'*yinv (rtb_MathFunction2 => rtY.P_k)
+  6) check = M * yinv (=> rtY.check)
+  7) u = P * d; implemented as u = P*[3; -1; 2] (=> rtY.u)
+  8) Buminusd = B*u - d (=> rtY.Buminusd; with d = rtConstP.Const2_Value)
+  9) J = u' * Wp * u (=> rtY.J)
+
+- UnitDelay update
+  - There is NO UnitDelay in EB_12B.c; therefore no UnitDelay is updated before or after EB_12B_step(). CLEAR: UnitDelay is not present; none is updated after global_step().
+
+2. For each requirement
+
+1) Determinant <= 1e-12 (ridge_on True) inversion accuracy to 1e-6 via check
+- Initial conditions
+  - No persistent states; only current inputs/consts used.
+  - The determinant condition is evaluated within the current EB_12B_step execution.
+- Input triggers
+  - Trigger when det(B*inv(Wp)*B') <= 1.0E-12; in code: boolean rtb_RelationalOperator becomes true, and rtY.ridge_on is set true.
+  - Relevant inputs/consts: rtU.B_j, rtConstB.Divide, rtConstP.Constant4_Value.
+- Expected state changes
+  - No persistent state change; rtY.ridge_on output is true for this cycle.
+  - The matrix inverted is Y = M + rtConstP.Constant4_Value, where M = B*inv(Wp)*B'.
+- Output verification
+  - rtY.check is computed as check = M * yinv, where yinv = inv(M + Constant4_Value).
+  - Verification condition at cycle end: for i == j: |rtY.check[3*j + i] - 1.0| <= 1.0E-6; for i != j: |rtY.check[3*j + i] - 0.0| <= 1.0E-6.
+  - Note: Because yinv inverts (M + ridge) while check multiplies by M (without ridge), this is an approximation; the 1e-6 tolerance must be met per code’s check output.
+- Timing requirements
+  - Perform the check at the end of the same cycle in which EB_12B_step() is called and rtY.ridge_on == true.
+  - One cycle latency: none; result is available in the same step.
+  - Check point for this time step is after EB_12B_step() returns.
+
+2) Determinant > 1e-12 (ridge_on False) inversion accuracy to 1e-12 via check
+- Initial conditions
+  - No persistent states; same-cycle evaluation.
+- Input triggers
+  - Trigger when det(B*inv(Wp)*B') > 1.0E-12; in code rtb_RelationalOperator is false, thus rtY.ridge_on == false.
+  - Relevant inputs/consts: rtU.B_j, rtConstB.Divide.
+- Expected state changes
+  - No persistent state change; rtY.ridge_on output is false for this cycle.
+  - The matrix inverted is exactly M = B*inv(Wp)*B' (no ridge added).
+- Output verification
+  - rtY.check = M * inv(M) should be the 3x3 identity to numerical precision.
+  - Verification condition at cycle end: for i == j: |rtY.check[3*j + i] - 1.0| <= 1.0E-12; for i != j: |rtY.check[3*j + i] - 0.0| <= 1.0E-12.
+- Timing requirements
+  - Perform the check at the end of the same cycle in which EB_12B_step() is called and rtY.ridge_on == false.
+  - One cycle latency: none; result is available in the same step.
+  - Check point for this time step is after EB_12B_step() returns.
+
+3) The output u vector should be a 5x1 vector
+- Initial conditions
+  - None; dimension is fixed by code generation.
+- Input triggers
+  - Every EB_12B_step call produces rtY.u as a 5-element vector.
+- Expected state changes
+  - None (no persistent state).
+- Output verification
+  - Verify size and population at cycle end:
+    - rtY.u has exactly 5 real_T elements; indices 0..4 are written every call.
+    - u is computed as u = rtY.P_k * d, implemented as:
+      - For i=0..4: rtY.u[i] = 3.0*rtY.P_k[i + 5*0] - 1.0*rtY.P_k[i + 5*1] + 2.0*rtY.P_k[i + 5*2]
+    - Optional cross-check: If rtConstP.Const2_Value equals [3; -1; 2], then u == rtY.P_k * rtConstP.Const2_Value within numerical precision.
+- Timing requirements
+  - Validate at the end of the same cycle as EB_12B_step().
+
+4) The 2-norm of the output Buminusd should be less than 0.01
+- Initial conditions
+  - None.
+- Input triggers
+  - Every EB_12B_step call.
+- Expected state changes
+  - None (no persistent state).
+- Output verification
+  - rtY.Buminusd is computed as:
+    - For i=0..2: rtY.Buminusd[i] = sum_{k=0..4} rtU.B_j[3*k + i] * rtY.u[k] - rtConstP.Const2_Value[i]
+  - Compute ||rtY.Buminusd||_2 and verify: ||rtY.Buminusd||_2 < 0.01 at cycle end.
+  - Note: Under rtY.ridge_on == false and full-rank M, expect B*u ≈ d to numerical precision; under rtY.ridge_on == true, the ridge term may introduce small residuals; the requirement enforces < 0.01.
+- Timing requirements
+  - Validate at the end of the same cycle as EB_12B_step().
+
+5) The output cost J shall be the minimum possible value given the set of input conditions
+- Initial conditions
+  - None.
+- Input triggers
+  - Every EB_12B_step call.
+- Expected state changes
+  - None (no persistent state).
+- Output verification
+  - Implementation:
+    - J is computed as rtY.J = rtY.u' * rtConstP.Const_Value * rtY.u
+    - u is computed via u = rtY.P_k * d with rtY.P_k = inv(Wp)*B' * yinv, yinv = inv(B*inv(Wp)*B' + ridge)
+  - Verification approach derived from code:
+    - When rtY.ridge_on == false (no ridge), u = inv(Wp)*B' * (B*inv(Wp)*B')^{-1} * d is the exact solution to:
+      - Minimize u' Wp u subject to B u = d
+      - KKT check at cycle end (can be computed from available outputs):
+        - Constraint: B*u == d within numerical tolerance (implied by requirement 4’s tight residual and rtY.ridge_on == false)
+        - Stationarity: Let lambda = - rtY.yinv * d. Then Wp*u + B'*lambda ≈ 0 using:
+          - Wp*u = rtConstP.Const_Value * rtY.u
+          - B'*lambda can be formed from rtU.B_j and lambda
+        - Both residuals near machine precision confirm optimality of J
+    - When rtY.ridge_on == true (ridge active), u = inv(Wp)*B' * (B*inv(Wp)*B' + ridge)^{-1} * d minimizes the relaxed quadratic form consistent with the code-implemented regularization; J is still computed as u' Wp u and is minimal for the regularized linear system used in this implementation.
+  - Acceptance at cycle end:
+    - Recompute J_ref = rtY.u' * rtConstP.Const_Value * rtY.u and verify J_ref == rtY.J within numerical tolerance for consistency.
+    - Optionally verify stationarity residual ||Wp*u + B'*lambda||_2 is minimal, with lambda = - rtY.yinv * d, using current outputs (rtY.yinv, rtY.P_k, rtY.u, rtU.B_j, rtConstP.Const_Value, rtConstP.Const2_Value).
+- Timing requirements
+  - Validate at the end of the same cycle as EB_12B_step().
+
+3. Timing Considerations
+- Update sequences
+  - Within one EB_12B_step() call (one cycle):
+    1) rtb_Product7 = rtConstB.Divide * rtU.B_j'    [5x3]
+    2) rtb_Product1_f = rtU.B_j * rtb_Product7      [3x3]  -> M = B*inv(Wp)*B'
+    3) rtb_RelationalOperator = (det(M) <= 1.0E-12) -> rtY.ridge_on
+    4) rtb_Product1_a = M + (rtY.ridge_on ? rtConstP.Constant4_Value : 0)
+    5) rt_invd3x3_snf(rtb_Product1_a, rtb_Divide1)  -> rtY.yinv
+    6) rtb_MathFunction2 = rtb_Product7 * rtb_Divide1 -> rtY.P_k
+    7) rtY.check = M * rtY.yinv                     [3x3]
+    8) rtY.u = rtY.P_k * [3; -1; 2]                 [5x1]
+    9) rtY.Buminusd = B*u - rtConstP.Const2_Value   [3x1]
+    10) rtY.J = u' * rtConstP.Const_Value * u       [1x1]
+- Critical dependencies
+  - rtY.ridge_on depends on the determinant of M computed from current rtU.B_j and constants.
+  - rtY.yinv depends on whether ridge was added (rtY.ridge_on).
+  - rtY.check uses M (without ridge) and yinv (possibly with ridge), so accuracy expectations differ by ridge_on state.
+  - rtY.u depends on rtY.P_k and the hardcoded d = [3; -1; 2] within the step; consistency with rtConstP.Const2_Value is expected if it equals [3; -1; 2].
+  - rtY.Buminusd depends on rtU.B_j, rtY.u, and rtConstP.Const2_Value.
+  - rtY.J depends on rtConstP.Const_Value and rtY.u.
+- Cycle requirements
+  - Each EB_12B_step() call constitutes one cycle.
+  - All checks and verifications must be performed at cycle end, immediately after EB_12B_step() returns.
+  - No UnitDelay or persistent states are updated after EB_12B_step(); results are purely combinational with respect to current inputs and constants for that cycle.

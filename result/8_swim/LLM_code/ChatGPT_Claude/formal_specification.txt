@@ -1,0 +1,160 @@
+File: swim_12B_state_and_requirements_analysis.txt
+
+1. State Variable Mapping
+- rtDW.UnitDelay_DSTATE
+  - Possible values: 0.0, 1.0, or previous stored value (note: not initialized in swim_12B_initialize()).
+  - Meaning: Latches SWIM_ASWarningAllowed (rtY.SWIM_ASWarningAllowed) across cycles.
+  - Transition logic in swim_12B_step():
+    - If (!rtU.diGet_S_LandingGearAltFlap): next = 0.0
+    - Else if (rtU.diGet_S_LandingGearAltFlap && (rtU.E_AI_IMPACT_PRESSURE > rtb_Gain1)): next = 1.0
+    - Else: next = rtDW.UnitDelay_DSTATE (hold previous)
+  - Update point: AFTER swim_12B_step() returns.
+  - CLEAR: UnitDelay '<S2>/Unit Delay' is updated after swim_12B_step() with value rtb_Merge1 (equals rtY.SWIM_ASWarningAllowed).
+
+- rtDW.UnitDelay_DSTATE_d
+  - Possible values: 0.0, 1.0, or previous stored value (note: not initialized in swim_12B_initialize()).
+  - Meaning: Latches swimGet_AgcasLowSpeedWarn (rtY.swimGet_AgcasLowSpeedWarn) across cycles when gating is false.
+  - Transition logic in swim_12B_step():
+    - If ((rtU.muxGet_T_Mux_AirspeedMonitorEna || rtU.cvGet_V_AgcasLowSpeedWarn) && !rtU.olcGet_AgcasInterlocks && (rtb_Merge1 == 1.0)):
+      - next = (rtU.E_AI_IMPACT_PRESSURE < (rtb_Gain1 - 28.72))  [boolean comparison cast to real_T]
+    - Else:
+      - next = rtDW.UnitDelay_DSTATE_d (hold previous)
+  - Update point: AFTER swim_12B_step() returns.
+  - CLEAR: UnitDelay '<S7>/Unit Delay' is updated after swim_12B_step() with value rtb_Sum_p (equals rtY.swimGet_AgcasLowSpeedWarn).
+
+- Key computed intermediates within a cycle (not retained across cycles):
+  - rtb_Merge_d
+    - Meaning: Auto GCAS Minimum Vcas (knots) based on rtU.diGet_S_CatSwitchPosition and rtU.muxGet_T_Mux_AircraftGrossWeigh.
+    - Values:
+      - If (rtU.diGet_S_CatSwitchPosition == 0): rtb_Merge_d = 1.25921 * sqrt(rtU.muxGet_T_Mux_AircraftGrossWeigh) + 10.0
+      - Else: rtb_Merge_d = 1.33694 * sqrt(rtU.muxGet_T_Mux_AircraftGrossWeigh) + 10.0
+  - rtb_Gain1
+    - Meaning: SWIM_Qcmin_lbspft2 (impact pressure warning trigger).
+    - Value: rtb_Gain1 = ((0.020306 * rtb_Merge_d - 2.0906) + 0.1) * 70.7184
+  - rtb_Merge1
+    - Meaning: SWIM_ASWarningAllowed (same-cycle combinational result prior to UnitDelay update).
+  - rtb_Sum_p
+    - Meaning: swimGet_AgcasLowSpeedWarn (same-cycle combinational result prior to UnitDelay update).
+
+- Output mappings (computed each cycle):
+  - rtY.SWIM_CalAirspeedmin_kts = rtb_Merge_d
+  - rtY.SWIM_Qcmin_lbspft2 = rtb_Gain1
+  - rtY.swimGet_QcMinDisable_lbspft2 = rtb_Gain1 - 28.72
+  - rtY.SWIM_ASWarningAllowed = rtb_Merge1
+  - rtY.swimGet_AgcasLowSpeedWarn = rtb_Sum_p
+
+- Update sequence within swim_12B_step() (single cycle):
+  1) Compute rtb_Merge_d from rtU.muxGet_T_Mux_AircraftGrossWeigh and rtU.diGet_S_CatSwitchPosition.
+  2) Compute rtb_Gain1 from rtb_Merge_d.
+  3) Produce rtY.swimGet_QcMinDisable_lbspft2 = rtb_Gain1 - 28.72.
+  4) Compute rtb_Merge1 (SWIM_ASWarningAllowed logic; may use rtDW.UnitDelay_DSTATE).
+  5) Compute rtb_Sum_p (low speed warn logic; may use rtDW.UnitDelay_DSTATE_d and uses current-cycle rtb_Merge1).
+  6) Drive all rtY outputs from the rtb_* signals.
+  7) Update rtDW.UnitDelay_DSTATE = rtb_Merge1 and rtDW.UnitDelay_DSTATE_d = rtb_Sum_p AFTER the function returns.
+
+2. For each requirement
+1) Requirement 1: Auto GCAS Minimum Vcas computation
+- Initial conditions
+  - No state dependency. rtDW.UnitDelay_DSTATE and rtDW.UnitDelay_DSTATE_d do not affect this requirement.
+  - Inputs used this cycle: rtU.diGet_S_CatSwitchPosition, rtU.muxGet_T_Mux_AircraftGrossWeigh.
+
+- Input triggers
+  - Any change in rtU.diGet_S_CatSwitchPosition or rtU.muxGet_T_Mux_AircraftGrossWeigh affects rtY.SWIM_CalAirspeedmin_kts in the same cycle.
+
+- Expected state changes
+  - None. No UnitDelay is read or written to realize the Vcas output beyond normal end-of-cycle state updates unrelated to this requirement.
+
+- Output verification
+  - If (rtU.diGet_S_CatSwitchPosition == 0):
+    - Expect rtY.SWIM_CalAirspeedmin_kts == 1.25921 * sqrt(rtU.muxGet_T_Mux_AircraftGrossWeigh) + 10.0
+  - Else:
+    - Expect rtY.SWIM_CalAirspeedmin_kts == 1.33694 * sqrt(rtU.muxGet_T_Mux_AircraftGrossWeigh) + 10.0
+  - Additionally from code implementation (same-cycle consistency checks):
+    - Compute local vmin = rtY.SWIM_CalAirspeedmin_kts
+    - Expect rtY.SWIM_Qcmin_lbspft2 == ((0.020306 * vmin - 2.0906) + 0.1) * 70.7184
+    - Expect rtY.swimGet_QcMinDisable_lbspft2 == rtY.SWIM_Qcmin_lbspft2 - 28.72
+
+- Timing requirements
+  - Zero-cycle latency: verify outputs at the end of the same cycle N in which inputs are applied (i.e., immediately after swim_12B_step()).
+  - Check point: end of cycle (after the call to swim_12B_step()).
+
+2) Requirement 2: Low speed warning generation when allowed
+- Initial conditions
+  - SWIM_ASWarningAllowed is latched and depends on:
+    - rtU.diGet_S_LandingGearAltFlap
+    - rtU.E_AI_IMPACT_PRESSURE
+    - rtY.SWIM_Qcmin_lbspft2 (computed same cycle)
+    - Prior rtDW.UnitDelay_DSTATE (if neither force-to-0 nor force-to-1 conditions met)
+  - swimGet_AgcasLowSpeedWarn is latched when gating is false via rtDW.UnitDelay_DSTATE_d.
+  - Note: rtDW.UnitDelay_DSTATE and rtDW.UnitDelay_DSTATE_d are not initialized in swim_12B_initialize().
+
+- Input triggers
+  - Allow gating for warning computation in this cycle requires:
+    - (rtU.muxGet_T_Mux_AirspeedMonitorEna || rtU.cvGet_V_AgcasLowSpeedWarn) == true
+    - rtU.olcGet_AgcasInterlocks == false
+    - Current-cycle rtY.SWIM_ASWarningAllowed == 1.0
+  - SWIM_ASWarningAllowed itself is computed via:
+    - If (!rtU.diGet_S_LandingGearAltFlap): 0.0
+    - Else if (rtU.diGet_S_LandingGearAltFlap && (rtU.E_AI_IMPACT_PRESSURE > rtY.SWIM_Qcmin_lbspft2)): 1.0
+    - Else: hold previous rtDW.UnitDelay_DSTATE
+
+- Expected state changes
+  - SWIM_ASWarningAllowed (rtY.SWIM_ASWarningAllowed, with rtDW.UnitDelay_DSTATE updated after the cycle)
+    - Transition to 0.0 whenever rtU.diGet_S_LandingGearAltFlap == false.
+    - Transition to 1.0 when rtU.diGet_S_LandingGearAltFlap == true and rtU.E_AI_IMPACT_PRESSURE > rtY.SWIM_Qcmin_lbspft2 in the same cycle.
+    - Otherwise holds its previous cycle’s value (latched by rtDW.UnitDelay_DSTATE).
+  - swimGet_AgcasLowSpeedWarn (rtY.swimGet_AgcasLowSpeedWarn, with rtDW.UnitDelay_DSTATE_d updated after the cycle)
+    - If gating is true in this cycle:
+      - Becomes (rtU.E_AI_IMPACT_PRESSURE < (rtY.SWIM_Qcmin_lbspft2 - 28.72)) in this cycle.
+    - If gating is false in this cycle:
+      - Holds previous value (rtDW.UnitDelay_DSTATE_d).
+
+- Output verification
+  - Given current-cycle rtY.SWIM_ASWarningAllowed, rtU.muxGet_T_Mux_AirspeedMonitorEna, rtU.cvGet_V_AgcasLowSpeedWarn, rtU.olcGet_AgcasInterlocks:
+    - If ((rtU.muxGet_T_Mux_AirspeedMonitorEna || rtU.cvGet_V_AgcasLowSpeedWarn) && !rtU.olcGet_AgcasInterlocks && (rtY.SWIM_ASWarningAllowed == 1.0)):
+      - Expect rtY.swimGet_AgcasLowSpeedWarn == (rtU.E_AI_IMPACT_PRESSURE < (rtY.SWIM_Qcmin_lbspft2 - 28.72))
+    - Else:
+      - Expect rtY.swimGet_AgcasLowSpeedWarn == previous cycle’s value (rtDW.UnitDelay_DSTATE_d from end of cycle N-1).
+  - Also verify rtY.SWIM_ASWarningAllowed matches:
+    - 0.0 if (!rtU.diGet_S_LandingGearAltFlap)
+    - 1.0 if (rtU.diGet_S_LandingGearAltFlap && rtU.E_AI_IMPACT_PRESSURE > rtY.SWIM_Qcmin_lbspft2)
+    - Otherwise previous value
+
+- Timing requirements
+  - The warning computation, when gated true, is zero-latency: verify at end of the same cycle.
+  - When gated false, the output retains previous value; verify against end-of-previous-cycle stored state.
+  - Check point: end of cycle (after swim_12B_step()).
+
+3. Timing Considerations
+- Update sequences
+  - In-cycle compute order:
+    1) rtb_Merge_d from rtU.muxGet_T_Mux_AircraftGrossWeigh and rtU.diGet_S_CatSwitchPosition
+    2) rtb_Gain1 from rtb_Merge_d
+    3) rtY.swimGet_QcMinDisable_lbspft2 = rtb_Gain1 - 28.72
+    4) rtb_Merge1 (SWIM_ASWarningAllowed) using rtDW.UnitDelay_DSTATE if needed
+    5) rtb_Sum_p (swimGet_AgcasLowSpeedWarn) using rtb_Merge1 and/or rtDW.UnitDelay_DSTATE_d
+    6) Drive all rtY outputs
+    7) Update states after function returns:
+       - rtDW.UnitDelay_DSTATE = rtb_Merge1
+       - rtDW.UnitDelay_DSTATE_d = rtb_Sum_p
+  - CLEAR: Both UnitDelays are updated AFTER the global step call swim_12B_step() completes.
+
+- Critical dependencies
+  - rtb_Merge1 (SWIM_ASWarningAllowed) for this cycle depends on:
+    - rtU.diGet_S_LandingGearAltFlap
+    - rtU.E_AI_IMPACT_PRESSURE
+    - rtb_Gain1 (i.e., rtY.SWIM_Qcmin_lbspft2), which itself depends on rtU.muxGet_T_Mux_AircraftGrossWeigh and rtU.diGet_S_CatSwitchPosition
+    - rtDW.UnitDelay_DSTATE (only in the hold-previous branch)
+  - rtb_Sum_p (swimGet_AgcasLowSpeedWarn) for this cycle depends on:
+    - rtb_Merge1 (current-cycle SWIM_ASWarningAllowed)
+    - rtU.muxGet_T_Mux_AirspeedMonitorEna, rtU.cvGet_V_AgcasLowSpeedWarn, rtU.olcGet_AgcasInterlocks
+    - rtU.E_AI_IMPACT_PRESSURE
+    - rtb_Gain1 (via comparison to rtb_Gain1 - 28.72)
+    - rtDW.UnitDelay_DSTATE_d (only when gating is false)
+
+- Cycle requirements
+  - Each call to swim_12B_step() defines one cycle.
+  - All state checks and output verifications must be performed at the end of the cycle, i.e., immediately after swim_12B_step() returns.
+  - Latched behaviors:
+    - rtY.SWIM_ASWarningAllowed will reflect current logic this cycle; the memory backing it (rtDW.UnitDelay_DSTATE) is updated after the cycle.
+    - rtY.swimGet_AgcasLowSpeedWarn will reflect current logic if gating is true; otherwise it equals the previous cycle’s stored value; the memory backing it (rtDW.UnitDelay_DSTATE_d) is updated after the cycle.

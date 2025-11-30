@@ -1,0 +1,171 @@
+nn_12B_analysis.txt
+
+1. State Variable Mapping
+- Variable names
+  - ExternalInputs rtU
+    - rtU.x
+      - Possible values: real_T (any double). Effective value used in computation is Saturate(rtU.x, -1.969179, 1.885733).
+      - Meaning: First input signal to the model (Global inport '<Root>/x').
+    - rtU.y
+      - Possible values: real_T (any double). Effective value used in computation is Saturate(rtU.y, -1.999644, 1.974943).
+      - Meaning: Second input signal to the model (Global inport '<Root>/y').
+  - ExternalOutputs rtY
+    - rtY.z
+      - Possible values: real_T (any double).
+      - Meaning: Model output (Global outport '<Root>/z'), computed each cycle in nn_12B_step().
+  - Local temporaries inside nn_12B_step()
+    - real_T tmp
+      - Possible values: real_T.
+      - Meaning: Normalized-and-scaled version of saturated rtU.x:
+        tmp = (Saturate(rtU.x, -1.969179, 1.885733) - (-0.014928)) * 0.918012.
+    - real_T tmp_0
+      - Possible values: real_T.
+      - Meaning: Reused temporary:
+        - First use: normalized-and-scaled version of saturated rtU.y:
+          tmp_0 = (Saturate(rtU.y, -1.999644, 1.974943) - (-0.08076)) * 0.847388.
+        - Later reused to accumulate dot-products and final output pre-scale.
+    - real_T rtb_Sum[10]
+      - Possible values: real_T[10].
+      - Meaning: Pre-activation sums:
+        - For Layer 1: rtb_Sum[i] = (rtConstP.WeightstoLayer1_Value[i + 10] * tmp_0) + (rtConstP.WeightstoLayer1_Value[i] * tmp) + rtConstP.b1_Value[i], i=0..9.
+        - Reused for Layer 2 pre-activations after second affine:
+          rtb_Sum[i] = sum_j rtConstP.WeightstoLayer2_Value[10*j + i] * rtb_Merge_0[j] + rtConstP.b2_Value[i], i=0..9.
+    - real_T rtb_Merge_0[10]
+      - Possible values: real_T[10].
+      - Meaning: Layer 1 post-activation outputs after piecewise nonlinearity applied per element of rtb_Sum[0..9].
+    - real_T rtb_Product2_0[10]
+      - Possible values: real_T[10].
+      - Meaning: Layer 2 post-activation outputs after piecewise nonlinearity applied per element of rtb_Sum[0..9] (after second affine).
+  - Constants (from rtConstP)
+    - rtConstP.WeightstoLayer1_Value[20], rtConstP.b1_Value[10]
+      - Meaning: Affine parameters for Layer 1 (2x10 weights laid out as [0..9] for x-weights and [10..19] for y-weights, and 10 biases).
+    - rtConstP.WeightstoLayer2_Value[100], rtConstP.b2_Value[10]
+      - Meaning: Affine parameters for Layer 2 (10x10 weights and 10 biases).
+    - rtConstP.WeightstoOutputLayer_Value[10]
+      - Meaning: Final output layer weights (10x1).
+- Meanings, State transitions and conditions (within a cycle)
+  - Piecewise activation function used in both hidden layers (applied element-wise to rtb_Sum[k]):
+    - If rtb_Sum[k] < -0.995:
+      rtb_*[k] = 0.01 * rtb_Sum[k] - 0.990025  (IfActionSubsystem)
+    - Else if rtb_Sum[k] < 0.0:
+      rtb_*[k] = (rtb_Sum[k] + 2.0) * rtb_Sum[k]  (IfActionSubsystem1)
+    - Else if rtb_Sum[k] < 0.995:
+      rtb_*[k] = (2.0 - rtb_Sum[k]) * rtb_Sum[k]  (IfActionSubsystem2)
+    - Else:
+      rtb_*[k] = 0.01 * rtb_Sum[k] + 0.990025  (IfActionSubsystem3)
+    - Here rtb_* denotes rtb_Merge_0 for Layer 1, and rtb_Product2_0 for Layer 2.
+  - These are transient, per-cycle computational branches (no persistent mode storage).
+- Update sequences (within one nn_12B_step() call, one cycle)
+  1) Saturate rtU.x to [-1.969179, 1.885733], then normalize/scale into tmp.
+  2) Saturate rtU.y to [-1.999644, 1.974943], then normalize/scale into tmp_0.
+  3) Layer 1 affine: compute rtb_Sum[0..9] from tmp (x-channel), tmp_0 (y-channel), and rtConstP.b1_Value.
+  4) Layer 1 activation: per index 0..9, branch on rtb_Sum[i] thresholds to produce rtb_Merge_0[i].
+  5) Layer 2 affine: for each i, rtb_Sum[i] = sum over j of rtConstP.WeightstoLayer2_Value[10*j + i] * rtb_Merge_0[j] + rtConstP.b2_Value[i].
+  6) Layer 2 activation: per index 0..9, branch on rtb_Sum[i] thresholds to produce rtb_Product2_0[i].
+  7) Output layer: tmp_0 = sum over i of rtConstP.WeightstoOutputLayer_Value[i] * rtb_Product2_0[i]; then
+     rtY.z = (tmp_0 - 0.01575) * 0.183766 - 0.01416.
+- UnitDelay update status
+  - There is NO UnitDelay in nn_12B.c. Therefore, after nn_12B_step() (the global step), no UnitDelay is updated. No persistent state is maintained across cycles by this code.
+
+
+2. For each requirement
+All checks are to be evaluated at cycle end, i.e., immediately after nn_12B_step() returns for that cycle.
+
+1) Requirement 1: The maximum value of rtY.z shall be ≤ 1.1
+- Initial conditions
+  - None required in code; the model is stateless across cycles.
+- Input triggers
+  - Any cycle where rtU.x and/or rtU.y are provided and nn_12B_step() is called.
+- Relevant state variables
+  - rtY.z.
+- Expected state changes
+  - None persist across cycles (no UnitDelay or stored mode).
+- Output verification
+  - After nn_12B_step(), assert rtY.z <= 1.1.
+- Timing requirements
+  - 1-cycle check: verify at the end of the same cycle n in which nn_12B_step() was executed.
+  - UnitDelay update after global_step(): Not applicable (no UnitDelay present).
+
+2) Requirement 2: The minimum value of rtY.z shall be ≥ -0.2
+- Initial conditions
+  - None required in code; the model is stateless across cycles.
+- Input triggers
+  - Any cycle where rtU.x and/or rtU.y are provided and nn_12B_step() is called.
+- Relevant state variables
+  - rtY.z.
+- Expected state changes
+  - None persist across cycles.
+- Output verification
+  - After nn_12B_step(), assert rtY.z >= -0.2.
+- Timing requirements
+  - 1-cycle check: verify at the end of the same cycle n in which nn_12B_step() was executed.
+  - UnitDelay update after global_step(): Not applicable (no UnitDelay present).
+
+3) Requirement 3: Backward-difference spatial derivatives bounds for data-indexed xt, yt
+- Initial conditions
+  - The code does not store prior samples. An external checker must store prior values:
+    - prev_xt = xt(n-1,1), prev_yt = yt(n-1,1), prev_z = z(n-1,1) = rtY.z at prior cycle corresponding to (xt(n-1,1), yt(n-1,1)).
+- Input triggers
+  - Cycle n where the provided inputs match the dataset index n:
+    - rtU.x == xt(n,1), rtU.y == yt(n,1), and nn_12B_step() executed to produce z(n,1) = rtY.z.
+- Relevant state variables
+  - rtU.x, rtU.y, rtY.z.
+- Expected state changes
+  - None persist across cycles; prior sample must be held externally by the checker (not by model code).
+- Output verification
+  - At the end of cycle n:
+    - Compute Δx = xt(n,1) - xt(n-1,1), Δy = yt(n,1) - yt(n-1,1), Δz = z(n,1) - z(n-1,1).
+    - If Δx != 0: check -35 <= (Δz / Δx) <= 10.
+    - If Δy != 0: check -35 <= (Δz / Δy) <= 10.
+    - If Δx == 0 or Δy == 0: the corresponding quotient is undefined in the code and must be skipped or treated per verification plan; the model itself provides no special handling.
+- Timing requirements
+  - Requires 2 cycles per checked pair (n-1 and n).
+    - Cycle n-1: feed rtU.x=xt(n-1,1), rtU.y=yt(n-1,1); call nn_12B_step(); capture prev_z = rtY.z at cycle end.
+    - Cycle n: feed rtU.x=xt(n,1), rtU.y=yt(n,1); call nn_12B_step(); capture z(n,1) at cycle end; perform derivative checks using stored prior values.
+  - UnitDelay update after global_step(): Not applicable (no UnitDelay present). The required prior-sample storage is external to the model code.
+
+4) Requirement 4: Absolute error to truth zt never exceeds 0.01 for equivalent (xt, yt)
+- Initial conditions
+  - None required in code; the model is stateless across cycles.
+- Input triggers
+  - Cycle where inputs are set to dataset values at index n:
+    - rtU.x == xt(n,1), rtU.y == yt(n,1), then call nn_12B_step().
+- Relevant state variables
+  - rtU.x, rtU.y, rtY.z; external truth zt(n,1) from nn_12B_data.mat (not present in code).
+- Expected state changes
+  - None persist across cycles.
+- Output verification
+  - After nn_12B_step(), compute abs(rtY.z - zt(n,1)) <= 0.01.
+- Timing requirements
+  - 1-cycle check for each dataset index n: verify at the end of the cycle where that (xt(n,1), yt(n,1)) pair is applied.
+  - UnitDelay update after global_step(): Not applicable (no UnitDelay present).
+
+
+3. Timing Considerations
+- Update sequences (within one call to nn_12B_step(), i.e., one cycle)
+  - Step ordering is strictly as coded:
+    1) Saturate and normalize rtU.x into tmp.
+    2) Saturate and normalize rtU.y into tmp_0.
+    3) Compute Layer 1 affine into rtb_Sum[0..9].
+    4) Apply Layer 1 piecewise activation to produce rtb_Merge_0[0..9] (branching by thresholds -0.995, 0.0, 0.995).
+    5) Compute Layer 2 affine into rtb_Sum[0..9] (overwrites previous contents).
+    6) Apply Layer 2 piecewise activation to produce rtb_Product2_0[0..9].
+    7) Compute final dot-product into tmp_0 and output scaling to produce rtY.z.
+- Critical dependencies
+  - Input saturations:
+    - x is effectively bounded to [-1.969179, 1.885733].
+    - y is effectively bounded to [-1.999644, 1.974943].
+  - Activation branching depends on rtb_Sum[] values at each layer using fixed thresholds:
+    - < -0.995 -> linear with slope 0.01 and offset -0.990025.
+    - [-0.995, 0) -> quadratic (x + 2)*x.
+    - [0, 0.995) -> quadratic (2 - x)*x.
+    - >= 0.995 -> linear with slope 0.01 and offset +0.990025.
+  - rtb_Sum[] is reused between layers; ensure checks refer to post-step values where appropriate.
+  - No persistent memory or UnitDelay exists; every cycle is independent unless an external checker stores prior values (needed for Requirement 3).
+- Cycle requirements
+  - Requirement 1: 1 cycle; check rtY.z <= 1.1 at cycle end (after nn_12B_step()).
+  - Requirement 2: 1 cycle; check rtY.z >= -0.2 at cycle end.
+  - Requirement 3: 2 cycles; use cycles n-1 and n to compute finite differences; perform checks at the end of cycle n using stored values from cycle n-1.
+  - Requirement 4: 1 cycle per dataset index; check abs(rtY.z - zt(n,1)) <= 0.01 at cycle end.
+- UnitDelay update after global_step()
+  - Explicitly: There is no UnitDelay anywhere in this implementation; therefore nothing is updated after the global step nn_12B_step().

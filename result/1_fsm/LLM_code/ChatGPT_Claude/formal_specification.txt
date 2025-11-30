@@ -1,305 +1,262 @@
-[txt file: fsm_12B_global_analysis.txt]
+[txt]
 1. State Variable Mapping
-- Variable names, possible values, meanings
-  - rtDW.UnitDelay_DSTATE
-    - Values: 0.0, 1.0, 2.0, 3.0
-    - Meaning (Autopilot previous STATE at cycle start):
-      - 0.0 = TRANSITION
-      - 1.0 = NOMINAL
-      - 2.0 = MANEUVER
-      - 3.0 = STANDBY
-  - rtDW.Merge
-    - Values: 0.0, 1.0, 2.0, 3.0
-    - Meaning (Autopilot current STATE computed within the step; drives rtY.STATE):
-      - 0.0 = TRANSITION
-      - 1.0 = NOMINAL
-      - 2.0 = MANEUVER
-      - 3.0 = STANDBY
-  - rtDW.UnitDelay1_DSTATE
-    - Values: 0.0, 1.0, 2.0
-    - Meaning (Sensor previous SENSTATE at cycle start):
-      - 0.0 = NOMINAL
-      - 1.0 = TRANSITION
-      - 2.0 = FAULT
-  - rtDW.Merge_g
-    - Values: 0.0, 1.0, 2.0
-    - Meaning (Sensor current SENSTATE computed within the step; drives rtY.SENSTATE):
-      - 0.0 = NOMINAL
-      - 1.0 = TRANSITION
-      - 2.0 = FAULT
-  - rtDW.UnitDelay2_DSTATE
-    - Values: true, false
-    - Meaning (latched “sensor-good” from previous cycle):
-      - true  = !(previous rtDW.Merge_g == 2.0) i.e., sensor was NOT in FAULT at end of previous cycle
-      - false = (previous rtDW.Merge_g == 2.0) i.e., sensor WAS in FAULT at end of previous cycle
-  - rtDW.Merge_p[3]
-    - Values: booleans per index
-    - Meaning (Autopilot internal moding booleans for current cycle; also used by sensor logic)
-      - rtDW.Merge_p[0] = MODE (true in states 1,2,3; false only in state 0)
-      - rtDW.Merge_p[1] = REQUEST (true in states 0,1,2; false only in state 3)
-      - rtDW.Merge_p[2] = PULL (true only in MANEUVER (state 2); else false)
-  - External inputs (rtU.*)
-    - rtU.standby: boolean (pilot in control)
-    - rtU.apfail: boolean (failure indication)
-    - rtU.supported: boolean (system health enable)
-    - rtU.limits: boolean (sensor limits exceeded)
-  - External outputs (rtY.*)
-    - rtY.STATE = rtDW.Merge (Autopilot STATE for current cycle)
-    - rtY.SENSTATE = rtDW.Merge_g (Sensor SENSTATE for current cycle)
-    - rtY.pullup = rtDW.Merge_p[2] (True when Autopilot in MANEUVER)
+- Autopilot state (previous): rtDW.UnitDelay_DSTATE
+  - Possible values: 0.0, 1.0, 2.0, 3.0
+  - Meanings:
+    - 0.0 = TRANSITION
+    - 1.0 = NOMINAL
+    - 2.0 = MANEUVER
+    - 3.0 = STANDBY
 
-- State transitions and conditions (from code)
-  - Autopilot (decision uses rtDW.UnitDelay_DSTATE and rtDW.UnitDelay2_DSTATE):
-    - From TRANSITION (0.0):
-      - if (rtU.standby) -> 3.0 (STANDBY)
-      - else if (rtU.supported && rtDW.UnitDelay2_DSTATE) -> 1.0 (NOMINAL)
-      - else -> stay 0.0
-    - From NOMINAL (1.0):
-      - if (rtU.standby) -> 3.0 (STANDBY)
-      - else if (!rtDW.UnitDelay2_DSTATE) -> 2.0 (MANEUVER)
-      - else -> stay 1.0
-    - From MANEUVER (2.0):
-      - if (rtU.standby && rtDW.UnitDelay2_DSTATE) -> 3.0 (STANDBY)
-      - else if (rtU.supported && rtDW.UnitDelay2_DSTATE) -> 0.0 (TRANSITION)
-      - else -> stay 2.0
-    - From STANDBY (3.0):
-      - if (rtU.apfail) -> 2.0 (MANEUVER)
-      - else if (!rtU.standby) -> 0.0 (TRANSITION)
-      - else -> stay 3.0
-  - Autopilot moding booleans (rtDW.Merge_p) by Autopilot STATE (rtDW.Merge):
-    - STATE 0.0 (TRANSITION): [MODE=false, REQUEST=true, PULL=false]
-    - STATE 1.0 (NOMINAL):    [MODE=true,  REQUEST=true, PULL=false]
-    - STATE 2.0 (MANEUVER):   [MODE=true,  REQUEST=true, PULL=true]
-    - STATE 3.0 (STANDBY):    [MODE=true,  REQUEST=false, PULL=false]
-  - Sensor (decision uses rtDW.UnitDelay1_DSTATE, rtDW.Merge_p, rtU.limits):
-    - From NOMINAL (0.0):
-      - if (rtU.limits) -> 2.0 (FAULT)
-      - else if (!rtDW.Merge_p[1]) -> 1.0 (TRANSITION)
-      - else -> stay 0.0
-    - From TRANSITION (1.0):
-      - if (rtDW.Merge_p[0] && rtDW.Merge_p[1]) -> 0.0 (NOMINAL)
-      - else -> stay 1.0
-    - From FAULT (2.0):
-      - if ((!rtDW.Merge_p[1]) || (!rtU.limits)) -> 1.0 (TRANSITION)
-      - else -> stay 2.0
+- Autopilot state (current this cycle): rtDW.Merge
+  - Possible values: 0.0, 1.0, 2.0, 3.0
+  - Meaning: same encoding as rtDW.UnitDelay_DSTATE; drives rtY.STATE and updates rtDW.UnitDelay_DSTATE at end of cycle
 
-- Update sequences (within one fsm_12B_global_step call)
-  1) Read rtDW.UnitDelay_DSTATE (Autopilot previous STATE) into rtb_UnitDelay.
-  2) Compute Autopilot next state rtDW.Merge using rtU.* and rtDW.UnitDelay2_DSTATE.
-  3) Compute Autopilot moding booleans rtDW.Merge_p[] from rtDW.Merge.
-  4) Read rtDW.UnitDelay1_DSTATE (Sensor previous SENSTATE) into rtb_UnitDelay.
-  5) Compute Sensor next state rtDW.Merge_g using rtU.limits and rtDW.Merge_p[].
-  6) Drive outputs: rtY.STATE=rtDW.Merge, rtY.SENSTATE=rtDW.Merge_g, rtY.pullup=rtDW.Merge_p[2].
-  7) UnitDelay updates (performed AFTER fsm_12B_global_step()):
-     - rtDW.UnitDelay_DSTATE <= rtDW.Merge
-     - rtDW.UnitDelay1_DSTATE <= rtDW.Merge_g
-     - rtDW.UnitDelay2_DSTATE <= !(rtDW.Merge_g == 2.0)
-     CLEAR: UnitDelay updates happen after fsm_12B_global_step() and take the values shown above.
+- Autopilot internal discretes (current this cycle): rtDW.Merge_p[3]
+  - rtDW.Merge_p[0] (MODE): true except when in TRANSITION (rtDW.Merge == 0.0)
+  - rtDW.Merge_p[1] (REQUEST): true in TRANSITION, NOMINAL, MANEUVER; false in STANDBY (i.e., false only when rtDW.Merge == 3.0)
+  - rtDW.Merge_p[2] (pullup discrete): true only in MANEUVER (i.e., true only when rtDW.Merge == 2.0)
+  - Mapping by autopilot state:
+    - TRANSITION (0.0): {false, true,  false}
+    - NOMINAL    (1.0): {true,  true,  false}
+    - MANEUVER   (2.0): {true,  true,  true}
+    - STANDBY    (3.0): {true,  false, false}
 
-2. For each requirement
-All checks are performed at cycle end (after fsm_12B_global_step()).
+- Sensor state (previous): rtDW.UnitDelay1_DSTATE
+  - Possible values: 0.0, 1.0, 2.0
+  - Meanings:
+    - 0.0 = NOMINAL
+    - 1.0 = TRANSITION
+    - 2.0 = FAULT
 
-1) Requirement 1: Exceeding sensor limits shall latch an autopilot pullup when the pilot is not in control (not standby) and the system is supported without failures (not apfail).
-- Initial conditions
-  - Autopilot prior state: rtDW.UnitDelay_DSTATE == 1.0 (NOMINAL) at end of previous cycle (typical path to MANEUVER).
-  - Sensor prior state: rtDW.UnitDelay1_DSTATE == 0.0 (NOMINAL).
-  - Latched sensor-good from previous cycle: rtDW.UnitDelay2_DSTATE == true.
-- Input triggers (applied in cycle k)
-  - rtU.limits == true
-  - rtU.standby == false
+- Sensor state (current this cycle): rtDW.Merge_g
+  - Possible values: 0.0, 1.0, 2.0
+  - Meaning: same encoding as rtDW.UnitDelay1_DSTATE; drives rtY.SENSTATE and updates rtDW.UnitDelay1_DSTATE at end of cycle
+
+- Sensor “good” status seen by Autopilot (previous-cycle derived): rtDW.UnitDelay2_DSTATE
+  - Possible values: true, false
+  - Meaning: true iff sensor is NOT in FAULT on the previous cycle
+  - Update equation at end of cycle: rtDW.UnitDelay2_DSTATE = !(rtDW.Merge_g == 2.0)
+  - Note: Autopilot logic uses rtDW.UnitDelay2_DSTATE (one-cycle-delayed view of sensor fault/good)
+
+- External inputs (System External names as in code):
+  - rtU.standby (Boolean)
+  - rtU.apfail (Boolean)
+  - rtU.supported (Boolean)
+  - rtU.limits (Boolean)
+
+- External outputs (System External names as in code):
+  - rtY.STATE = rtDW.Merge (Autopilot state)
+  - rtY.pullup = rtDW.Merge_p[2] (true only when Autopilot in MANEUVER)
+  - rtY.SENSTATE = rtDW.Merge_g (Sensor state)
+
+- Initialization:
+  - In fsm_12B_global_initialize(): rtDW.UnitDelay_DSTATE = 0.0
+  - rtDW.UnitDelay1_DSTATE and rtDW.UnitDelay2_DSTATE are not explicitly initialized in this file; with C static storage they default to 0 (i.e., 0.0 and false respectively) unless set elsewhere
+
+2. Requirements Analysis (code-accurate, cycle-end checks, one requirement per item)
+
+1) Exceeding sensor limits shall latch an autopilot pullup when the pilot is not in control (not standby) and the system is supported without failures (not apfail).
+- Initial conditions:
+  - Autopilot prior state: rtDW.UnitDelay_DSTATE == 1.0 (NOMINAL) or 0.0/3.0 followed by reaching NOMINAL with request true; practical onset path shown below
+  - Sensor prior state (at cycle t0): rtDW.UnitDelay1_DSTATE == 0.0 (NOMINAL)
+  - Context per requirement: rtU.standby == false, rtU.supported == true, rtU.apfail == false
+- Input triggers:
+  - At cycle t0: rtU.limits == true
+- Expected state changes:
+  - Cycle t0 end:
+    - Sensor: rtDW.Merge_g = 2.0 (NOMINAL -> FAULT due to limits)
+    - Autopilot: no immediate change from limits; uses previous good status (rtDW.UnitDelay2_DSTATE from t-1)
+  - Cycle t1 end:
+    - Autopilot: if prior was NOMINAL (rtDW.UnitDelay_DSTATE == 1.0), then !rtDW.UnitDelay2_DSTATE (now false due to FAULT latched at t0) causes rtDW.Merge = 2.0 (NOMINAL -> MANEUVER)
+    - Pullup: rtY.pullup = true (since rtDW.Merge == 2.0)
+    - Latching: Autopilot remains in MANEUVER (rtDW.Merge stays 2.0) while sensor not good (rtDW.UnitDelay2_DSTATE == false). Exit requires sensor good plus either rtU.supported or rtU.standby per code (see Timing notes).
+- Output verification:
+  - Cycle t1 end: rtY.STATE == 2.0 and rtY.pullup == true
+  - Sensor FAULT at t0 end: rtY.SENSTATE == 2.0
+- Timing requirements:
+  - One-cycle latency from limits assertion to pullup: t0 (limits true) -> t1 (pullup true)
+  - Latch persists until sensor becomes good (rtDW.UnitDelay2_DSTATE == true). Standby/support/apfail do not gate entry into MANEUVER in code; they affect exit paths only.
+
+2) The autopilot shall change states from TRANSITION to STANDBY when the pilot is in control (standby).
+- Initial conditions:
+  - rtDW.UnitDelay_DSTATE == 0.0 (TRANSITION)
+- Input triggers:
+  - rtU.standby == true
+- Expected state changes:
+  - Autopilot: rtDW.Merge = 3.0 (TRANSITION -> STANDBY)
+- Output verification:
+  - Cycle end: rtY.STATE == 3.0
+- Timing requirements:
+  - Same-cycle effect (no extra cycle). Check at end of the same fsm_12B_global_step().
+
+3) The autopilot shall change states from TRANSITION to NOMINAL when the system is supported and sensor data is good.
+- Initial conditions:
+  - rtDW.UnitDelay_DSTATE == 0.0 (TRANSITION)
+  - rtDW.UnitDelay2_DSTATE == true (sensor good as of previous cycle)
+- Input triggers:
   - rtU.supported == true
-  - rtU.apfail == false
-- Expected state changes (per code)
-  - Cycle k (sensor reacts): rtDW.Merge_g -> 2.0 (FAULT); rtY.SENSTATE == 2.0 at end of k.
-  - UnitDelay update after k: rtDW.UnitDelay2_DSTATE <= false (because rtDW.Merge_g == 2.0).
-  - Cycle k+1 (autopilot reacts): with !rtDW.UnitDelay2_DSTATE, from NOMINAL the autopilot sets rtDW.Merge -> 2.0 (MANEUVER); rtDW.Merge_p[2] -> true.
-  - rtY.STATE == 2.0 and rtY.pullup == true at end of k+1.
-  - Latching behavior in code: Once in MANEUVER (rtDW.Merge == 2.0), it stays 2.0 unless rtDW.UnitDelay2_DSTATE == true and (rtU.supported == true -> go to 0.0) or (rtU.standby == true -> go to 3.0). Apfail is not consulted in MANEUVER.
-- Output verification
-  - rtY.pullup == true and rtY.STATE == 2.0 at end of cycle k+1.
-- Timing requirements
-  - 1-cycle latency from limits assertion (cycle k) to pullup assertion (cycle k+1) due to use of rtDW.UnitDelay2_DSTATE (latched sensor-good).
-  - CLEAR: UnitDelay update after k sets rtDW.UnitDelay2_DSTATE = false, enabling the transition in k+1.
+- Expected state changes:
+  - Autopilot: rtDW.Merge = 1.0 (TRANSITION -> NOMINAL)
+- Output verification:
+  - Cycle end: rtY.STATE == 1.0
+- Timing requirements:
+  - Same-cycle effect, provided rtDW.UnitDelay2_DSTATE is already true at cycle start.
 
-2) Requirement 2: The autopilot shall change states from TRANSITION to STANDBY when the pilot is in control (standby).
-- Initial conditions
-  - rtDW.UnitDelay_DSTATE == 0.0 (TRANSITION).
-- Input triggers
-  - rtU.standby == true (in current cycle).
-- Expected state changes
-  - rtDW.Merge -> 3.0 (STANDBY) in the same cycle; rtY.STATE == 3.0 at end of cycle k.
-- Output verification
-  - rtY.STATE == 3.0 at cycle end.
-- Timing requirements
-  - 0 additional cycles; change visible at end of current cycle k.
+4) The autopilot shall change states from NOMINAL to MANEUVER when the sensor data is not good.
+- Initial conditions:
+  - rtDW.UnitDelay_DSTATE == 1.0 (NOMINAL)
+  - rtDW.UnitDelay2_DSTATE == false (sensor not good as of previous cycle)
+- Input triggers:
+  - No additional inputs required
+- Expected state changes:
+  - Autopilot: rtDW.Merge = 2.0 (NOMINAL -> MANEUVER)
+- Output verification:
+  - Cycle end: rtY.STATE == 2.0 and rtY.pullup == true
+- Timing requirements:
+  - Same-cycle effect relative to rtDW.UnitDelay2_DSTATE. If not-good results from limits becoming true this cycle, the transition occurs next cycle because rtDW.UnitDelay2_DSTATE updates after the cycle.
 
-3) Requirement 3: The autopilot shall change states from TRANSITION to NOMINAL when the system is supported and sensor data is good.
-- Initial conditions
-  - rtDW.UnitDelay_DSTATE == 0.0 (TRANSITION).
-  - rtDW.UnitDelay2_DSTATE == true (sensor-good latched from previous cycle).
-- Input triggers
-  - rtU.supported == true.
-  - rtU.standby == false (implicit as not taking the STANDBY branch).
-- Expected state changes
-  - rtDW.Merge -> 1.0 (NOMINAL) in the same cycle; rtY.STATE == 1.0 at end of cycle k.
-- Output verification
-  - rtY.STATE == 1.0 at cycle end.
-- Timing requirements
-  - 0 additional cycles if rtDW.UnitDelay2_DSTATE is already true. If sensor just became good this cycle, the enabling of rtDW.UnitDelay2_DSTATE occurs after cycle end and the transition occurs in the next cycle.
+5) The autopilot shall change states from NOMINAL to STANDBY when the pilot is in control (standby).
+- Initial conditions:
+  - rtDW.UnitDelay_DSTATE == 1.0 (NOMINAL)
+- Input triggers:
+  - rtU.standby == true
+- Expected state changes:
+  - Autopilot: rtDW.Merge = 3.0 (NOMINAL -> STANDBY)
+- Output verification:
+  - Cycle end: rtY.STATE == 3.0
+- Timing requirements:
+  - Same-cycle effect.
 
-4) Requirement 4: The autopilot shall change states from NOMINAL to MANEUVER when the sensor data is not good.
-- Initial conditions
-  - rtDW.UnitDelay_DSTATE == 1.0 (NOMINAL).
-  - rtDW.UnitDelay2_DSTATE == false (latched “sensor not good” from previous cycle).
-- Input triggers
-  - No additional inputs required; ensure rtU.standby == false to avoid STANDBY branch.
-- Expected state changes
-  - rtDW.Merge -> 2.0 (MANEUVER); rtDW.Merge_p[2] -> true; rtY.STATE == 2.0, rtY.pullup == true at end of cycle k.
-- Output verification
-  - rtY.STATE == 2.0 and rtY.pullup == true at cycle end.
-- Timing requirements
-  - 0 additional cycles once rtDW.UnitDelay2_DSTATE is false. If sensor fault occurs this cycle, Autopilot transitions in the next cycle (1-cycle latency).
+6) The autopilot shall change states from MANEUVER to STANDBY when the pilot is in control (standby) and sensor data is good.
+- Initial conditions:
+  - rtDW.UnitDelay_DSTATE == 2.0 (MANEUVER)
+  - rtDW.UnitDelay2_DSTATE == true (sensor good as of previous cycle)
+- Input triggers:
+  - rtU.standby == true
+- Expected state changes:
+  - Autopilot: rtDW.Merge = 3.0 (MANEUVER -> STANDBY)
+- Output verification:
+  - Cycle end: rtY.STATE == 3.0 and rtY.pullup == false
+- Timing requirements:
+  - Same-cycle effect relative to rtDW.UnitDelay2_DSTATE. If sensor becomes good this cycle, transition occurs next cycle.
 
-5) Requirement 5: The autopilot shall change states from NOMINAL to STANDBY when the pilot is in control (standby).
-- Initial conditions
-  - rtDW.UnitDelay_DSTATE == 1.0 (NOMINAL).
-- Input triggers
-  - rtU.standby == true.
-- Expected state changes
-  - rtDW.Merge -> 3.0 (STANDBY); rtY.STATE == 3.0 at end of cycle k.
-- Output verification
-  - rtY.STATE == 3.0 at cycle end.
-- Timing requirements
-  - 0 additional cycles; immediate in current cycle.
+7) The autopilot shall change states from PULLUP to TRANSITION when the system is supported and sensor data is good.
+- Initial conditions:
+  - rtDW.UnitDelay_DSTATE == 2.0 (MANEUVER i.e., PULLUP active)
+  - rtDW.UnitDelay2_DSTATE == true (sensor good as of previous cycle)
+- Input triggers:
+  - rtU.supported == true
+- Expected state changes:
+  - Autopilot: rtDW.Merge = 0.0 (MANEUVER -> TRANSITION)
+- Output verification:
+  - Cycle end: rtY.STATE == 0.0 and rtY.pullup == false
+- Timing requirements:
+  - Same-cycle effect relative to rtDW.UnitDelay2_DSTATE.
 
-6) Requirement 6: The autopilot shall change states from MANEUVER to STANDBY when the pilot is in control (standby) and sensor data is good.
-- Initial conditions
-  - rtDW.UnitDelay_DSTATE == 2.0 (MANEUVER).
-  - rtDW.UnitDelay2_DSTATE == true (sensor-good latched from previous cycle).
-- Input triggers
-  - rtU.standby == true.
-- Expected state changes
-  - rtDW.Merge -> 3.0 (STANDBY); rtDW.Merge_p[2] -> false; rtY.STATE == 3.0, rtY.pullup == false at end of cycle k.
-- Output verification
-  - rtY.STATE == 3.0 and rtY.pullup == false at cycle end.
-- Timing requirements
-  - 0 additional cycles when rtDW.UnitDelay2_DSTATE == true. If sensor becomes good this cycle, transition occurs next cycle due to UnitDelay.
+8) The autopilot shall change states from STANDBY to TRANSITION when the pilot is not in control (not standby).
+- Initial conditions:
+  - rtDW.UnitDelay_DSTATE == 3.0 (STANDBY)
+- Input triggers:
+  - rtU.standby == false
+- Expected state changes:
+  - Autopilot: rtDW.Merge = 0.0 (STANDBY -> TRANSITION)
+- Output verification:
+  - Cycle end: rtY.STATE == 0.0
+- Timing requirements:
+  - Same-cycle effect.
 
-7) Requirement 7: The autopilot shall change states from PULLUP to TRANSITION when the system is supported and sensor data is good.
-- Initial conditions
-  - rtDW.UnitDelay_DSTATE == 2.0 (MANEUVER, i.e., PULLUP).
-  - rtDW.UnitDelay2_DSTATE == true (sensor-good latched).
-- Input triggers
-  - rtU.supported == true.
-  - rtU.standby == false (to avoid STANDBY branch).
-- Expected state changes
-  - rtDW.Merge -> 0.0 (TRANSITION); rtDW.Merge_p[2] -> false; rtY.STATE == 0.0, rtY.pullup == false at end of cycle k.
-- Output verification
-  - rtY.STATE == 0.0 and rtY.pullup == false at cycle end.
-- Timing requirements
-  - 0 additional cycles when rtDW.UnitDelay2_DSTATE == true.
+9) The autopilot shall change states from STANDBY to MANEUVER when a failure occurs (apfail).
+- Initial conditions:
+  - rtDW.UnitDelay_DSTATE == 3.0 (STANDBY)
+- Input triggers:
+  - rtU.apfail == true
+- Expected state changes:
+  - Autopilot: rtDW.Merge = 2.0 (STANDBY -> MANEUVER)
+- Output verification:
+  - Cycle end: rtY.STATE == 2.0 and rtY.pullup == true
+- Timing requirements:
+  - Same-cycle effect.
 
-8) Requirement 8: The autopilot shall change states from STANDBY to TRANSITION when the pilot is not in control (not standby).
-- Initial conditions
-  - rtDW.UnitDelay_DSTATE == 3.0 (STANDBY).
-- Input triggers
-  - rtU.standby == false.
-- Expected state changes
-  - rtDW.Merge -> 0.0 (TRANSITION); rtY.STATE == 0.0 at end of cycle k.
-- Output verification
-  - rtY.STATE == 0.0 at cycle end.
-- Timing requirements
-  - 0 additional cycles.
+10) The sensor shall change states from NOMINAL to FAULT when limits are exceeded.
+- Initial conditions:
+  - rtDW.UnitDelay1_DSTATE == 0.0 (NOMINAL)
+- Input triggers:
+  - rtU.limits == true
+- Expected state changes:
+  - Sensor: rtDW.Merge_g = 2.0 (NOMINAL -> FAULT)
+- Output verification:
+  - Cycle end: rtY.SENSTATE == 2.0
+- Timing requirements:
+  - Same-cycle effect.
 
-9) Requirement 9: The autopilot shall change states from STANDBY to MANEUVER when a failure occurs (apfail).
-- Initial conditions
-  - rtDW.UnitDelay_DSTATE == 3.0 (STANDBY).
-- Input triggers
-  - rtU.apfail == true.
-- Expected state changes
-  - rtDW.Merge -> 2.0 (MANEUVER); rtDW.Merge_p[2] -> true; rtY.STATE == 2.0 and rtY.pullup == true at end of cycle k.
-- Output verification
-  - rtY.STATE == 2.0 and rtY.pullup == true at cycle end.
-- Timing requirements
-  - 0 additional cycles.
+11) The sensor shall change states from NOMINAL to TRANSITION when the autopilot is not requesting support (not request).
+- Initial conditions:
+  - rtDW.UnitDelay1_DSTATE == 0.0 (NOMINAL)
+  - Autopilot current request discrete: rtDW.Merge_p[1] == false
+    - Note: In this code, rtDW.Merge_p[1] is false only when rtDW.Merge == 3.0 (Autopilot STANDBY) in the same cycle.
+- Input triggers:
+  - None beyond rtDW.Merge_p[1] == false
+- Expected state changes:
+  - Sensor: rtDW.Merge_g = 1.0 (NOMINAL -> TRANSITION)
+- Output verification:
+  - Cycle end: rtY.SENSTATE == 1.0
+- Timing requirements:
+  - Same-cycle effect with respect to rtDW.Merge_p[1] of the same cycle.
 
-10) Requirement 10: The sensor shall change states from NOMINAL to FAULT when limits are exceeded.
-- Initial conditions
-  - rtDW.UnitDelay1_DSTATE == 0.0 (NOMINAL).
-- Input triggers
-  - rtU.limits == true.
-- Expected state changes
-  - rtDW.Merge_g -> 2.0 (FAULT); rtY.SENSTATE == 2.0 at end of cycle k.
-- Output verification
-  - rtY.SENSTATE == 2.0 at cycle end.
-- Timing requirements
-  - 0 additional cycles.
+12) The sensor shall change states from FAULT to TRANSITION when the autopilot is not requesting support (not request) and limits are not exceeded (not limits).
+- Initial conditions:
+  - rtDW.UnitDelay1_DSTATE == 2.0 (FAULT)
+- Input triggers (as implemented in code):
+  - Condition in code: (!rtDW.Merge_p[1]) || (!rtU.limits)
+    - I.e., FAULT -> TRANSITION occurs if not request OR not limits (logical OR)
+- Expected state changes:
+  - Sensor: rtDW.Merge_g = 1.0 (FAULT -> TRANSITION) when either of the above is true
+- Output verification:
+  - Cycle end: rtY.SENSTATE == 1.0
+- Timing requirements:
+  - Same-cycle effect with respect to rtDW.Merge_p[1] and rtU.limits of the same cycle.
 
-11) Requirement 11: The sensor shall change states from NOMINAL to TRANSITION when the autopilot is not requesting support (not request).
-- Initial conditions
-  - rtDW.UnitDelay1_DSTATE == 0.0 (NOMINAL).
-- Input triggers
-  - Autopilot current request false: rtDW.Merge_p[1] == false (this occurs only when rtDW.Merge == 3.0 STANDBY in the current cycle).
-- Expected state changes
-  - rtDW.Merge_g -> 1.0 (TRANSITION); rtY.SENSTATE == 1.0 at end of cycle k.
-- Output verification
-  - rtY.SENSTATE == 1.0 at cycle end.
-- Timing requirements
-  - 0 additional cycles; sensor uses current-cycle rtDW.Merge_p[1].
-
-12) Requirement 12: The sensor shall change states from FAULT to TRANSITION when the autopilot is not requesting support (not request) and limits are not exceeded (not limits).
-- Initial conditions
-  - rtDW.UnitDelay1_DSTATE == 2.0 (FAULT).
-- Input triggers
-  - rtDW.Merge_p[1] == false (not request) AND rtU.limits == false (not limits).
-- Expected state changes
-  - Per code condition: if ((!rtDW.Merge_p[1]) || (!rtU.limits)) then rtDW.Merge_g -> 1.0 (TRANSITION).
-  - Under the specified trigger (both true), the OR condition is satisfied; rtY.SENSTATE == 1.0 at end of cycle k.
-- Output verification
-  - rtY.SENSTATE == 1.0 at cycle end.
-- Timing requirements
-  - 0 additional cycles.
-
-13) Requirement 13: The sensor shall change states from TRANSITION to NOMINAL when the autopilot is requesting support (request) and the autopilot reports the correct active mode (mode).
-- Initial conditions
-  - rtDW.UnitDelay1_DSTATE == 1.0 (TRANSITION).
-- Input triggers
-  - rtDW.Merge_p[1] == true (request).
-  - rtDW.Merge_p[0] == true (mode).
-  - Note: In code, both are true when Autopilot current state rtDW.Merge is 1.0 (NOMINAL) or 2.0 (MANEUVER).
-- Expected state changes
-  - rtDW.Merge_g -> 0.0 (NOMINAL); rtY.SENSTATE == 0.0 at end of cycle k.
-- Output verification
-  - rtY.SENSTATE == 0.0 at cycle end.
-- Timing requirements
-  - 0 additional cycles.
+13) The sensor shall change states from TRANSITION to NOMINAL when the autopilot is requesting support (request) and the autopilot reports the correct active mode (mode).
+- Initial conditions:
+  - rtDW.UnitDelay1_DSTATE == 1.0 (TRANSITION)
+- Input triggers:
+  - rtDW.Merge_p[1] == true (request)
+  - rtDW.Merge_p[0] == true (mode)
+- Expected state changes:
+  - Sensor: rtDW.Merge_g = 0.0 (TRANSITION -> NOMINAL) when both are true (logical AND)
+- Output verification:
+  - Cycle end: rtY.SENSTATE == 0.0
+- Timing requirements:
+  - Same-cycle effect with respect to rtDW.Merge_p[0] and rtDW.Merge_p[1] of the same cycle.
 
 3. Timing Considerations
-- Update sequences
-  - Autopilot next state (rtDW.Merge) is computed using:
-    - Autopilot previous state (rtDW.UnitDelay_DSTATE) from prior cycle.
-    - Latched sensor-good flag (rtDW.UnitDelay2_DSTATE) from prior cycle.
-    - Current inputs rtU.standby, rtU.supported, rtU.apfail.
-  - Autopilot moding booleans (rtDW.Merge_p[]) are computed from Autopilot next state in the same cycle.
-  - Sensor next state (rtDW.Merge_g) is computed using:
-    - Sensor previous state (rtDW.UnitDelay1_DSTATE) from prior cycle.
-    - Current rtDW.Merge_p[] (Autopilot current-cycle mode/request).
-    - Current rtU.limits.
-  - Outputs rtY.STATE, rtY.SENSTATE, rtY.pullup reflect rtDW.Merge, rtDW.Merge_g, rtDW.Merge_p[2] of the current cycle (before UnitDelay updates).
+- Update sequences within fsm_12B_global_step():
+  - Read rtDW.UnitDelay_DSTATE into rtb_UnitDelay (Autopilot previous state)
+  - Compute Autopilot next state rtDW.Merge using:
+    - rtU.standby, rtU.supported, rtU.apfail
+    - rtDW.UnitDelay2_DSTATE (sensor good from previous cycle)
+  - Read rtDW.UnitDelay1_DSTATE into rtb_UnitDelay (Sensor previous state)
+  - Compute Autopilot internal discretes rtDW.Merge_p[] from rtDW.Merge
+  - Compute Sensor next state rtDW.Merge_g using:
+    - rtU.limits
+    - rtDW.Merge_p[0] (mode) and rtDW.Merge_p[1] (request) from this same cycle
+  - Drive outputs:
+    - rtY.STATE = rtDW.Merge
+    - rtY.pullup = rtDW.Merge_p[2]
+    - rtY.SENSTATE = rtDW.Merge_g
+  - Updates (UnitDelay blocks) AFTER this cycle’s outputs are computed:
+    - CLEAR: UnitDelay '<S1>/Unit Delay' is updated after fsm_12B_global_step() with value: rtDW.UnitDelay_DSTATE = rtDW.Merge
+    - CLEAR: UnitDelay '<S1>/Unit Delay2' is updated after fsm_12B_global_step() with value: rtDW.UnitDelay2_DSTATE = !(rtDW.Merge_g == 2.0)
+    - CLEAR: UnitDelay '<S1>/Unit Delay1' is updated after fsm_12B_global_step() with value: rtDW.UnitDelay1_DSTATE = rtDW.Merge_g
 
-- Critical dependencies
-  - Autopilot decisions that depend on sensor health use rtDW.UnitDelay2_DSTATE, which is updated AFTER the step from the current sensor state:
-    - CLEAR: rtDW.UnitDelay2_DSTATE is updated after fsm_12B_global_step() with value !(rtDW.Merge_g == 2.0).
-    - This introduces a 1-cycle latency from a change in rtU.limits/rtDW.Merge_g to Autopilot reactions that test sensor-good.
-  - Sensor decisions depend on Autopilot current-cycle mode/request (rtDW.Merge_p[]), so sensor can respond in the same cycle to Autopilot changes.
+- Critical dependencies:
+  - Autopilot decisions depend on rtDW.UnitDelay2_DSTATE (sensor good from the previous cycle). Therefore, changes in sensor fault status (rtU.limits affecting rtDW.Merge_g) influence Autopilot transitions one cycle later.
+  - Sensor decisions depend on rtDW.Merge_p[0] and rtDW.Merge_p[1] computed from the current Autopilot state of the same cycle.
 
-- Cycle requirements
-  - Verification point: after each fsm_12B_global_step() call.
-  - Transitions that depend on rtDW.UnitDelay2_DSTATE (sensor-good) may require one cycle after a sensor state change to become effective in the Autopilot logic.
-  - Transitions dependent only on rtU.standby, rtU.supported, rtU.apfail, or rtDW.Merge_p[] occur within the same cycle and are observable at cycle end.
+- Cycle requirements:
+  - Checks must be made at cycle end (after fsm_12B_global_step() returns).
+  - For requirements involving sensor→autopilot coupling (use of rtDW.UnitDelay2_DSTATE), allow one-cycle latency between a change in rtU.limits/rtY.SENSTATE and the resulting Autopilot transition.
+  - For requirements involving autopilot→sensor coupling (use of rtDW.Merge_p[]), effects are visible in the same cycle.
 
-- Explicit UnitDelay updates after fsm_12B_global_step() (VERY IMPORTANT)
-  - rtDW.UnitDelay_DSTATE <= rtDW.Merge
-  - rtDW.UnitDelay1_DSTATE <= rtDW.Merge_g
-  - rtDW.UnitDelay2_DSTATE <= !(rtDW.Merge_g == 2.0)
-  - All state checks must use values as observed at the end of the cycle (after the above updates).
+[/txt]

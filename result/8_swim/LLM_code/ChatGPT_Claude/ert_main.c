@@ -1,6 +1,3 @@
-Based on the analysis and requirements, I'll generate an assertion-based C code for verification using ESBMC. Here's the complete `ert_main.c`:
-
-```c
 #include "swim_12B.h"
 #include "swim_12B.c"
 #include <math.h>
@@ -228,28 +225,3 @@ int main(void) {
     
     return 0;
 }
-```
-
-This verification code includes:
-
-1. **Property 1**: Verifies Auto GCAS Minimum Vcas computation based on CAT switch position and aircraft weight
-2. **Property 2A**: Verifies SWIM_ASWarningAllowed state transitions 
-3. **Property 2B**: Verifies low speed warning generation when conditions are met
-4. **Property 3**: Verifies state persistence and update timing
-5. **Property 4**: Verifies warning consistency when not allowed
-6. **Property 5**: Verifies landing gear interlock functionality
-7. **Property 6**: Verifies impact pressure threshold hysteresis
-8. **Property 7**: Verifies CAT switch effect on minimum airspeed
-9. **Property 8**: Verifies state values are boolean (0.0 or 1.0)
-
-To verify specific properties with ESBMC, compile with the appropriate macro definition:
-```bash
-esbmc ert_main.c -DVERIFY_PROPERTY_1 --no-library --unwind 5
-```
-
-The code properly:
-- Uses non-deterministic inputs with reasonable constraints
-- Stores previous state values to verify state transitions
-- Verifies outputs after each step execution
-- Uses floating-point comparison with tolerance
-- Runs a bounded loop for model checking efficiency

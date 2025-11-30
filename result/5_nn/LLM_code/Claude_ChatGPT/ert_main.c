@@ -106,9 +106,3 @@ int main(void)
 
   return 0;
 }
-
-Notes for running ESBMC
-- Control which requirement is being verified via -DVERIFY_PROPERTY_N on the ESBMC command line, for example:
-  esbmc ert_main.c nn_12B.c nn_12B_data.c -DVERIFY_PROPERTY_1
-- Property 3 needs at least two iterations; MAX_STEPS is set to 6 by default and can be overridden with -DMAX_STEPS=N.
-- Property 4 requires a truth value zt for the inputs (xt, yt). In this harness, xt and yt are bound to the current inputs and zt is nondeterministic. Define VERIFY_PROPERTY_4 only when your environment or harness extension constrains zt appropriately (e.g., by linking a dataset or a plant model). Without such constraints, ESBMC will likely find a counterexample since zt can take any value.

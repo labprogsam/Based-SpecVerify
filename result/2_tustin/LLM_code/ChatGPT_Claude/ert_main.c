@@ -1,6 +1,3 @@
-Looking at the requirements and analysis, I'll create a comprehensive verification harness for the integrator module. Here's the `ert_main.c` file:
-
-```c
 #include "integrator_12B.h"
 #include <math.h>
 #include <stdio.h>
@@ -321,16 +318,3 @@ int main(void) {
     
     return 0;
 }
-```
-
-This verification harness:
-
-1. **Sets global values**: Initializes the model and tracking variables
-2. **Runs the system in a loop**: Executes up to 101 cycles for accuracy tests
-3. **Verifies after each loop**: Checks assertions based on current state
-4. **Uses preprocessor macros**: Each property can be verified independently with `-DVERIFY_PROPERTY_X`
-5. **Implements reasonable loops**: 101 iterations for accuracy tests, configurable for others
-6. **Covers all requirements**: Properties 1a-1e, 2a-2b, 3-1 to 3-3, 4a-4b
-7. **Preserves state**: Uses variables to track previous values without static
-8. **Uses correct nondet format**: `_Bool nondet_bool()` and `real_T nondet_real()`
-9. **All properties in main**: Every property verification is

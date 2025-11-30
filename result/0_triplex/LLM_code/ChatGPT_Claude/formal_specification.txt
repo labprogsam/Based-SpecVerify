@@ -1,226 +1,210 @@
-triplex_12B_analysis.txt
+[triplex_12B_code_analysis.txt]
 
-1) State Variable Mapping
+1. State Variable Mapping
+- Persistent state (UnitDelay)
+  - rtDW.Delay1_DSTATE[0]
+    - Possible values: int32_T >= 0
+    - Meaning: Previous-cycle Persistence Count (PC_prev)
+  - rtDW.Delay1_DSTATE[1]
+    - Possible values: int32_T >= 0
+    - Meaning: Previous-cycle Totalizer Count (TC_prev)
+  - rtDW.Delay1_DSTATE[2]
+    - Possible values: {0,1,2,4}
+    - Meaning: Previous-cycle Latched Fault Code (FC_prev)
+- Next-state buffer (computed each cycle by the monitor logic)
+  - rtDW.Merge_e[0]
+    - Possible values: int32_T >= 0
+    - Meaning: Current-cycle PC to be output and committed to UnitDelay at end of cycle
+  - rtDW.Merge_e[1]
+    - Possible values: int32_T >= 0
+    - Meaning: Current-cycle TC to be output and committed to UnitDelay at end of cycle
+  - rtDW.Merge_e[2]
+    - Possible values: {0,1,2,4}
+    - Meaning: Current-cycle FC to be output and committed to UnitDelay at end of cycle
+- Selected value accumulator (non-persistent within cycle)
+  - rtDW.Merge
+    - Possible values: double
+    - Meaning: Current-cycle selected value (drives rtY.sel_val)
+- External inputs (System external names from code)
+  - rtU.ia, rtU.ib, rtU.ic: double
+  - rtU.Tlevel: double
+  - rtU.PClimit: int32_T
+- External outputs (System external names from code)
+  - rtY.PC: int32_T, equals rtDW.Merge_e[0]
+  - rtY.TC: int32_T, equals rtDW.Merge_e[1]
+  - rtY.FC: int32_T, equals rtDW.Merge_e[2]
+  - rtY.sel_val: double, equals rtDW.Merge
 
-- External inputs (exact code names)
-  - rtU.ia: double. Branch A input signal.
-  - rtU.ib: double. Branch B input signal.
-  - rtU.ic: double. Branch C input signal.
-  - rtU.Tlevel: double. Trip level threshold for miscompare between pairs.
-  - rtU.PClimit: int32_T (treated as Integer in logic). Persistence Count limit.
+State transitions and conditions (from triplex_12B_step)
+- Read UnitDelay at start of cycle:
+  - rtb_Delay1_idx_0 = rtDW.Delay1_DSTATE[0] (PC_prev)
+  - rtb_Delay1_idx_1 = rtDW.Delay1_DSTATE[1] (TC_prev)
+  - rtb_Delay1_idx_2 = rtDW.Delay1_DSTATE[2] (FC_prev)
+- Miscompare booleans (true if outside trip level):
+  - Rel_AB: rtb_RelationalOperator_o = (fabs(rtU.ia - rtU.ib) > rtU.Tlevel)
+  - Rel_BC: rtb_RelationalOperator1 = (fabs(rtU.ib - rtU.ic) > rtU.Tlevel)
+  - Rel_AC: rtb_RelationalOperator2 = (fabs(rtU.ia - rtU.ic) > rtU.Tlevel)
+- “No miscompare” boolean:
+  - no_mis = (!Rel_AB && !Rel_BC && !Rel_AC)
+- Persistence limit boolean:
+  - pc_gt_lim = (PC_prev > rtU.PClimit)
+- Act1 (clear while quiet): if (PC_prev == 0) && no_mis
+  - PC_next = 0; TC_next = TC_prev; FC_next = FC_prev
+- Act2 (decay during quiet): else if (PC_prev > 0) && no_mis
+  - PC_next = PC_prev - 1; TC_next = TC_prev; FC_next = FC_prev
+- Act3 (exactly one pair miscompares): else if
+  - (Rel_AB && !Rel_BC && !Rel_AC) ||
+    (!Rel_AB && Rel_BC && !Rel_AC) ||
+    (!Rel_AB && !Rel_BC && Rel_AC)
+  - PC_next = PC_prev; TC_next = TC_prev; FC_next = FC_prev
+- Else (miscompare handling, including pending/latching)
+  - Identify single-branch isolation patterns:
+    - A-fail pattern: Rel_AB && !Rel_BC && Rel_AC
+    - B-fail pattern: Rel_AB && Rel_BC && !Rel_AC
+    - C-fail pattern: !Rel_AB && Rel_BC && Rel_AC
+  - Pending failure (increment PC and TC) if any pattern holds and (PC_prev <= rtU.PClimit)
+    - PC_next = PC_prev + 1; TC_next = TC_prev + 1; FC_next = FC_prev
+  - Latch failure (set FC and reset PC) if any pattern holds and (PC_prev > rtU.PClimit)
+    - B-fail: FC_next = 2; PC_next = 0; TC_next = TC_prev
+    - A-fail: FC_next = 4; PC_next = 0; TC_next = TC_prev
+    - C-fail: FC_next = 1; PC_next = 0; TC_next = TC_prev
+  - All-three miscompare (second-failure-in-progress surrogate in code):
+    - Condition: Rel_AB && Rel_BC && Rel_AC
+    - Action: PC_next = PC_prev; TC_next = TC_prev + 1; FC_next = FC_prev
+- Selection (uses current-cycle FC = rtDW.Merge_e[2])
+  - If FC == 0 (No-Fail): mid-value selection via mean-based two-switch method
+    - m = (rtU.ia + rtU.ib + rtU.ic)/3
+    - pick candidate among ia and ib closer to m; then pick between that candidate and ic, again closer to m
+    - rtDW.Merge set to that value
+  - If FC == 1 (Single-BranchC-Fail): rtDW.Merge = (rtU.ia + rtU.ib)/2
+  - If FC == 2 (Single-BranchB-Fail): rtDW.Merge = (rtU.ia + rtU.ic)/2
+  - If FC == 4 (Single-BranchA-Fail): rtDW.Merge = (rtU.ib + rtU.ic)/2
+- Outputs driven within the same cycle:
+  - rtY.PC = rtDW.Merge_e[0]; rtY.TC = rtDW.Merge_e[1]; rtY.FC = rtDW.Merge_e[2]; rtY.sel_val = rtDW.Merge
+- UnitDelay update point (VERY IMPORTANT)
+  - After the end of triplex_12B_step (global step), the UnitDelay is updated as:
+    - rtDW.Delay1_DSTATE[0] = rtDW.Merge_e[0]  // PC committed after global_step()
+    - rtDW.Delay1_DSTATE[1] = rtDW.Merge_e[1]  // TC committed after global_step()
+    - rtDW.Delay1_DSTATE[2] = rtDW.Merge_e[2]  // FC committed after global_step()
 
-- External outputs (exact code names)
-  - rtY.PC: int32_T. Current Persistence Count (# of frames), equals rtDW.Merge_e[0] within the step.
-  - rtY.TC: int32_T. Totalizer Count (# of miscompare frames), equals rtDW.Merge_e[1] within the step.
-  - rtY.FC: int32_T. Latched Fault Code, equals rtDW.Merge_e[2] within the step. Values used by selector:
-    - 0: No-Fail state.
-    - 1: Single-BranchC-Fail (C failed).
-    - 2: Single-BranchB-Fail (B failed).
-    - 4: Single-BranchA-Fail (A failed).
-  - rtY.sel_val: double. Selected value for use by downstream logic.
-    Note: The requirement document lists set_val; the actual external name in the C file is sel_val. Use sel_val.
-
-- Persistent state (UnitDelay) and working DW members (exact code names)
-  - rtDW.Delay1_DSTATE[3]: int32_T array. One-sample delay (UnitDelay) of [PC, TC, FC] from the end of the previous cycle.
-    - rtDW.Delay1_DSTATE[0]: previous PC (PC_prev).
-    - rtDW.Delay1_DSTATE[1]: previous TC (TC_prev).
-    - rtDW.Delay1_DSTATE[2]: previous FC (FC_prev).
-  - rtDW.Merge_e[3]: int32_T array. Within-step “next state” and outputs [PC, TC, FC] computed this cycle.
-    - rtDW.Merge_e[0]: PC_next for this cycle (also drives rtY.PC).
-    - rtDW.Merge_e[1]: TC_next for this cycle (also drives rtY.TC).
-    - rtDW.Merge_e[2]: FC_next for this cycle (also drives rtY.FC and the selector).
-  - rtDW.Merge: double. Within-step selected value buffer used to assign rtY.sel_val.
-
-- Miscompare flags (computed each cycle)
-  - AB := (fabs(rtU.ia - rtU.ib) > rtU.Tlevel)
-  - BC := (fabs(rtU.ib - rtU.ic) > rtU.Tlevel)
-  - AC := (fabs(rtU.ia - rtU.ic) > rtU.Tlevel)
-  - no_miscompare := (!AB && !BC && !AC)
-
-- Persistence limit flags (computed each cycle from previous PC)
-  - PC_prev := rtDW.Delay1_DSTATE[0]
-  - PC_limit_exceeded := (PC_prev > rtU.PClimit)
-  - PC_within_limit := !PC_limit_exceeded
-
-- Selector logic (computed each cycle, based on FC_next = rtDW.Merge_e[2])
-  - If rtDW.Merge_e[2] == 0 (No-Fail): Mid-value selection via:
-    mean := (rtU.ia + rtU.ib + rtU.ic) / 3.0
-    temp := (fabs(rtU.ia - mean) > fabs(rtU.ib - mean)) ? rtU.ib : rtU.ia
-    rtDW.Merge := (fabs(temp - mean) > fabs(rtU.ic - mean)) ? rtU.ic : temp
-  - If rtDW.Merge_e[2] == 1 (Single-BranchC-Fail): rtDW.Merge := (rtU.ia + rtU.ib) / 2.0
-  - If rtDW.Merge_e[2] == 2 (Single-BranchB-Fail): rtDW.Merge := (rtU.ia + rtU.ic) / 2.0
-  - If rtDW.Merge_e[2] == 4 (Single-BranchA-Fail): rtDW.Merge := (rtU.ib + rtU.ic) / 2.0
-
-- State transitions and conditions (exact code behavior)
-  Let PC_prev := rtDW.Delay1_DSTATE[0], TC_prev := rtDW.Delay1_DSTATE[1], FC_prev := rtDW.Delay1_DSTATE[2].
-
-  Order of mutually exclusive cases in triplex_12B_step:
-
-  1) Reset when clear, PC_prev <= 0 and no miscompare:
-     If (no_miscompare && (PC_prev <= 0)):
-       rtDW.Merge_e = [0, TC_prev, FC_prev]
-
-  2) Countdown when clear, PC_prev > 0 and no miscompare:
-     Else if (no_miscompare && (PC_prev > 0)):
-       rtDW.Merge_e = [PC_prev - 1, TC_prev, FC_prev]
-
-  3) Hold state on inconsistent-only-AC condition (AB==false, BC==false, AC==true):
-     Else if (AC && (!AB && !BC)):
-       rtDW.Merge_e = [PC_prev, TC_prev, FC_prev]
-
-  4) Miscompare pending and identifiable, within persistence limit (increment PC and TC):
-     Let:
-       is_B_candidate := (AB && BC && !AC)           // B is outlier, A≈C
-       is_A_candidate := (!BC && AC)                  // A is outlier, B≈C
-       is_C_candidate := (!AB && AC)                  // C is outlier, A≈B
-     If ((is_B_candidate || is_A_candidate || is_C_candidate) && (PC_prev <= rtU.PClimit)):
-       rtDW.Merge_e = [PC_prev + 1, TC_prev + 1, FC_prev]
-
-  5) Latch B failure when persistence exceeded:
-     Else if (is_B_candidate && (PC_prev > rtU.PClimit)):
-       rtDW.Merge_e = [0, TC_prev, 2]                 // FC=2 (B failed), PC reset
-
-  6) Latch A failure when persistence exceeded:
-     Else if (is_A_candidate && (PC_prev > rtU.PClimit)):
-       rtDW.Merge_e = [0, TC_prev, 4]                 // FC=4 (A failed), PC reset
-
-  7) Latch C failure when persistence exceeded:
-     Else if (is_C_candidate && (PC_prev > rtU.PClimit)):
-       rtDW.Merge_e = [0, TC_prev, 1]                 // FC=1 (C failed), PC reset
-
-  8) All three pairs miscompare (ambiguous): increment TC only:
-     Else if ((AB && BC) && AC):
-       rtDW.Merge_e = [PC_prev, TC_prev + 1, FC_prev]
-
-- VERY IMPORTANT: UnitDelay update point and value
-  - At the end of triplex_12B_step (after all outputs are computed), the UnitDelay is updated as follows:
-    rtDW.Delay1_DSTATE[0] = rtDW.Merge_e[0];  // next PC
-    rtDW.Delay1_DSTATE[1] = rtDW.Merge_e[1];  // next TC
-    rtDW.Delay1_DSTATE[2] = rtDW.Merge_e[2];  // next FC
-  - Therefore, each global step call represents one cycle, and the checkpoint for verification is after triplex_12B_step returns, using rtY.* and the updated rtDW.Delay1_DSTATE[*].
-
-
-2) Requirements-to-Code Analysis
-
+2. Requirements
 [RM-001]
-- Initial conditions (code state for “no-fail”):
-  - rtDW.Delay1_DSTATE[2] == 0 (FC_prev == 0).
-  - PC_prev can be 0 or >0; behavior defined below.
-- Input triggers (unique outlier miscompare must persist):
-  - One branch differs from the other two, i.e., one of:
-    - is_B_candidate := (AB && BC && !AC)  // B outlier, A≈C
-    - is_A_candidate := (!BC && AC)        // A outlier, B≈C
-    - is_C_candidate := (!AB && AC)        // C outlier, A≈B
-  - Persistence condition: miscompare persists for more than rtU.PClimit cycles, i.e., latch occurs when (PC_prev > rtU.PClimit) while the same candidate condition remains true.
-- Expected state changes (at cycle end):
-  - While unique miscompare persists and PC_prev <= rtU.PClimit:
-    - rtY.PC = PC_prev + 1
-    - rtY.TC = TC_prev + 1
-    - rtY.FC = FC_prev (still 0)
-  - On the first cycle where the same unique miscompare persists and PC_prev > rtU.PClimit:
-    - For B outlier: rtY.PC = 0; rtY.TC = TC_prev; rtY.FC = 2
-    - For A outlier: rtY.PC = 0; rtY.TC = TC_prev; rtY.FC = 4
-    - For C outlier: rtY.PC = 0; rtY.TC = TC_prev; rtY.FC = 1
-  - Note: TC is not incremented in the latching cycle; only during pending cycles.
-- Output verification (at cycle end):
-  - rtY.FC must equal the code matching the outlier branch (2 for B, 4 for A, 1 for C).
-  - rtY.PC must be 0 on the latching cycle.
-  - rtY.TC must equal previous TC (no change) on the latching cycle.
-- Timing requirements (in cycles):
-  - Let N = rtU.PClimit + 1 consecutive cycles with the same unique miscompare condition.
-  - Latch occurs on cycle N, because the latch condition uses (PC_prev > rtU.PClimit).
-  - UnitDelay Update: after triplex_12B_step(), rtDW.Delay1_DSTATE[*] <= rtDW.Merge_e[*] as stated above.
+- Initial conditions
+  - State at cycle k-1 (after previous global step): rtDW.Delay1_DSTATE[2] (FC_prev) can be 0 or already set; This requirement targets no-fail-to-latched-first-fail behavior. In code, latching is independent of FC_prev, but the intended “no-fail” path corresponds to FC_prev == 0.
+  - Counters: rtDW.Delay1_DSTATE[0] (PC_prev) arbitrary (typically 0 at onset of persistent miscompare)
+- Input triggers
+  - One-branch-isolating miscompare pattern sustained:
+    - A-fail pattern: (fabs(rtU.ia - rtU.ib) > rtU.Tlevel) && !(fabs(rtU.ib - rtU.ic) > rtU.Tlevel) && (fabs(rtU.ia - rtU.ic) > rtU.Tlevel)
+    - B-fail pattern: (fabs(rtU.ia - rtU.ib) > rtU.Tlevel) && (fabs(rtU.ib - rtU.ic) > rtU.Tlevel) && !(fabs(rtU.ia - rtU.ic) > rtU.Tlevel)
+    - C-fail pattern: !(fabs(rtU.ia - rtU.ib) > rtU.Tlevel) && (fabs(rtU.ib - rtU.ic) > rtU.Tlevel) && (fabs(rtU.ia - rtU.ic) > rtU.Tlevel)
+- Expected state changes
+  - While the pattern holds and rtDW.Delay1_DSTATE[0] <= rtU.PClimit (pending failure):
+    - rtDW.Merge_e[0] = rtDW.Delay1_DSTATE[0] + 1  // PC increments by 1
+    - rtDW.Merge_e[1] = rtDW.Delay1_DSTATE[1] + 1  // TC increments by 1
+    - rtDW.Merge_e[2] = rtDW.Delay1_DSTATE[2]      // FC unchanged
+  - On the first cycle where the same pattern holds and rtDW.Delay1_DSTATE[0] > rtU.PClimit (persistence exceeded):
+    - B-fail pattern: rtDW.Merge_e[2] = 2; rtDW.Merge_e[0] = 0; rtDW.Merge_e[1] = rtDW.Delay1_DSTATE[1]
+    - A-fail pattern: rtDW.Merge_e[2] = 4; rtDW.Merge_e[0] = 0; rtDW.Merge_e[1] = rtDW.Delay1_DSTATE[1]
+    - C-fail pattern: rtDW.Merge_e[2] = 1; rtDW.Merge_e[0] = 0; rtDW.Merge_e[1] = rtDW.Delay1_DSTATE[1]
+  - CLEAR UnitDelay update after global_step(): rtDW.Delay1_DSTATE[...] <= rtDW.Merge_e[...]
+- Output verification
+  - rtY.FC shall equal 2 (B), 4 (A), or 1 (C) when the respective pattern is true and rtDW.Delay1_DSTATE[0] > rtU.PClimit at the start of the cycle.
+  - rtY.PC shall be 0 on the latch cycle; rtY.TC shall not change on the latch cycle (it was incremented on prior pending cycles).
+- Timing requirements
+  - Let PC at the start of the first miscompare cycle be PC0 (commonly 0). Latching occurs on the first cycle where PC_prev > rtU.PClimit.
+  - If PC0 = 0 and the pattern holds continuously, latch happens on the (rtU.PClimit + 1)-th miscompare frame after onset.
+  - All checks at end of cycle (post global step). The UnitDelay is updated after outputs are produced.
 
 [RM-002]
-- Initial conditions:
-  - rtDW.Delay1_DSTATE[2] == 0 (FC_prev == 0). No latched failure.
-  - Miscompares may or may not be present; method must be unaffected by a first failure in progress.
-- Input triggers:
-  - No specific trigger beyond FC_next == 0 at the end of the monitor step. This is the selector’s gating condition:
-    - If rtDW.Merge_e[2] == 0, execute mid-value selection.
-- Expected state changes:
-  - No changes required to PC/TC/FC for this requirement; only selection behavior is verified.
-- Output verification (at cycle end):
-  - Compute mean := (rtU.ia + rtU.ib + rtU.ic) / 3.0.
-  - temp := (fabs(rtU.ia - mean) > fabs(rtU.ib - mean)) ? rtU.ib : rtU.ia.
-  - sel_mid := (fabs(temp - mean) > fabs(rtU.ic - mean)) ? rtU.ic : temp.
-  - rtY.sel_val must equal sel_mid.
-  - This implements the mid-value selection (the value bounded by the other two). It remains valid even during a “first failure in progress” since the selector depends only on rtDW.Merge_e[2] == 0 and not on PC.
-- Timing requirements:
-  - The selected value is computed in the same cycle after PC/TC/FC decisions.
-  - Verification point is at the end of the global step when rtY.sel_val has been assigned.
+- Initial conditions
+  - At cycle k end: rtDW.Merge_e[2] == 0 (No-Fail selected within the same cycle), regardless of rtDW.Merge_e[0] (PC) value.
+- Input triggers
+  - None beyond FC == 0; selection does not depend on PC in code.
+- Expected state changes
+  - Selection computation (mid-value) within the cycle:
+    - m = ((rtU.ia + rtU.ib) + rtU.ic)/3.0
+    - Choose between rtU.ia and rtU.ib the one with smaller |candidate - m|
+    - Then choose between that candidate and rtU.ic the one with smaller |candidate - m|
+    - rtDW.Merge is set to that value; rtY.sel_val = rtDW.Merge
+  - Counters and FC unaffected by selection; they are already set via rtDW.Merge_e.
+- Output verification
+  - With rtY.FC == 0 at cycle end, rtY.sel_val equals the mid-value of {rtU.ia, rtU.ib, rtU.ic} as produced by the above mean-proximity two-switch procedure.
+  - A first failure in progress (rtY.PC > 0) does not change the selection method; FC==0 guarantees mid-value path in code.
+- Timing requirements
+  - Verified every cycle where rtY.FC == 0. Check after the global step call.
 
 [RM-003]
-- Initial conditions (single-fail state):
-  - One of the single-fail codes is latched (after [RM-001] latching cycle) and visible within the same cycle to the selector:
-    - rtDW.Merge_e[2] == 1 (C failed), or
-    - rtDW.Merge_e[2] == 2 (B failed), or
-    - rtDW.Merge_e[2] == 4 (A failed).
-- Input triggers:
-  - Selector branches on rtDW.Merge_e[2]:
-    - FC == 1: Single-BranchC-Fail.
-    - FC == 2: Single-BranchB-Fail.
-    - FC == 4: Single-BranchA-Fail.
-- Expected state changes:
-  - No specific PC/TC changes are required by this requirement; only selection changes.
-- Output verification (at cycle end):
-  - If rtY.FC == 1, then rtY.sel_val == (rtU.ia + rtU.ib) / 2.0.
-  - If rtY.FC == 2, then rtY.sel_val == (rtU.ia + rtU.ic) / 2.0.
-  - If rtY.FC == 4, then rtY.sel_val == (rtU.ib + rtU.ic) / 2.0.
-  - This is the Good Channel Average (GCA) of the two remaining branches.
-- Timing requirements:
-  - Latching and selection both occur in the same cycle: the monitor sets rtDW.Merge_e[2] to 1/2/4, and the selector immediately uses it to compute rtY.sel_val before the UnitDelay is updated.
-  - Verification point is at cycle end.
+- Initial conditions
+  - Single-fail state at cycle end is indicated by rtY.FC in {1,2,4}.
+- Input triggers
+  - FC drives selection method:
+    - rtY.FC == 1: Single-BranchC-Fail
+    - rtY.FC == 2: Single-BranchB-Fail
+    - rtY.FC == 4: Single-BranchA-Fail
+- Expected state changes
+  - rtY.sel_val is Good Channel Average (GCA) of the remaining two good branches:
+    - rtY.FC == 1 (C failed): rtY.sel_val = (rtU.ia + rtU.ib)/2.0
+    - rtY.FC == 2 (B failed): rtY.sel_val = (rtU.ia + rtU.ic)/2.0
+    - rtY.FC == 4 (A failed): rtY.sel_val = (rtU.ib + rtU.ic)/2.0
+  - Counters do not change due to selection; they are determined earlier in the monitor logic.
+- Output verification
+  - For FC==1: rtY.sel_val equals (rtU.ia + rtU.ib)/2.0
+  - For FC==2: rtY.sel_val equals (rtU.ia + rtU.ic)/2.0
+  - For FC==4: rtY.sel_val equals (rtU.ib + rtU.ic)/2.0
+- Timing requirements
+  - Verified every cycle with rtY.FC in {1,2,4}. Check after the global step call.
 
 [RM-004]
-- Initial conditions (interpreted as “second failure in progress” for the single-fail state):
-  - A first failure has been latched: rtDW.Delay1_DSTATE[2] != 0 (FC_prev ∈ {1,2,4}).
-  - The remaining two good branches miscompare: for the branch failed in FC_prev, the absolute difference of the other two exceeds rtU.Tlevel. Concretely:
-    - If FC_prev == 2 (B failed): AC == true indicates a second failure in progress.
-    - If FC_prev == 4 (A failed): BC == true indicates a second failure in progress.
-    - If FC_prev == 1 (C failed): AB == true indicates a second failure in progress.
-  - Persistence may or may not be exceeded; this requirement concerns “in progress,” i.e., prior to latching a second fail.
-- Input triggers:
-  - As above: FC_prev != 0 and the difference between the two remaining branches exceeds rtU.Tlevel.
-- Expected state changes per requirement text:
-  - The selected value should remain unchanged from the previous selected value (i.e., numerically equal to rtY.sel_val from the prior cycle).
-- Output verification (what the code actually does):
-  - The provided code does not implement a “hold-last sel_val” behavior. There is no UnitDelay or state used to freeze rtDW.Merge (sel_val). Instead, selection is recomputed each cycle strictly from current inputs and rtDW.Merge_e[2]:
-    - If rtDW.Merge_e[2] == 2 (B failed), rtY.sel_val = (rtU.ia + rtU.ic)/2.0 every cycle, not a held value.
-    - If rtDW.Merge_e[2] == 4 (A failed), rtY.sel_val = (rtU.ib + rtU.ic)/2.0 every cycle.
-    - If rtDW.Merge_e[2] == 1 (C failed), rtY.sel_val = (rtU.ia + rtU.ib)/2.0 every cycle.
-  - Therefore, under “second failure in progress,” the selected value can change with rtU.ia/ib/ic and is not held constant from the prior cycle.
-- Timing requirements:
-  - Not applicable as a “hold” cannot be verified from this implementation. The requirement is not implemented by the given code.
+- Initial conditions
+  - One failure already latched: rtY.FC in {1,2,4} at the end of the previous cycle.
+- Input triggers (second failure in progress, as represented in code)
+  - Code identifies the “all-three miscompare” condition:
+    - (fabs(rtU.ia - rtU.ib) > rtU.Tlevel) &&
+      (fabs(rtU.ib - rtU.ic) > rtU.Tlevel) &&
+      (fabs(rtU.ia - rtU.ic) > rtU.Tlevel)
+  - Note: The code does not gate this by FC; it applies regardless of FC. When this condition holds, the code executes “Act8”.
+- Expected state changes (actual code behavior)
+  - When “all-three miscompare” holds:
+    - rtDW.Merge_e[0] = rtDW.Delay1_DSTATE[0]          // PC unchanged
+    - rtDW.Merge_e[1] = rtDW.Delay1_DSTATE[1] + 1      // TC increments by 1
+    - rtDW.Merge_e[2] = rtDW.Delay1_DSTATE[2]          // FC unchanged
+  - Selection behavior under FC persists:
+    - rtY.sel_val continues to be computed from current inputs using the method implied by rtY.FC (mid-value if FC==0; GCA if FC in {1,2,4}).
+  - Important: The code does not freeze rtY.sel_val to the previous numeric sample; it only keeps FC unchanged. Therefore, the numeric value of rtY.sel_val can change from cycle to cycle as inputs change, even during “second failure in progress”.
+- Output verification
+  - To check for a freeze per requirement-as-written: compare rtY.sel_val[k] vs rtY.sel_val[k-1] when all-three miscompare is true and rtY.FC != 0. The code does not enforce equality; any equality would only occur if inputs happen not to change accordingly.
+  - To check code’s actual implemented behavior: verify that when all-three miscompare holds, rtY.FC remains unchanged and rtY.PC remains unchanged, while rtY.TC increments by 1. rtY.sel_val is recomputed from current inputs per FC.
+- Timing requirements
+  - Verify after each global step:
+    - PC and FC hold their previous values;
+    - TC increments by 1 when all three miscompares are true;
+    - No special timing window beyond per-cycle check.
+  - CLEAR UnitDelay update after global_step(): rtDW.Delay1_DSTATE[...] <= rtDW.Merge_e[...] (so the unchanged PC/FC and incremented TC persist to the next cycle).
 
-
-3) Timing Considerations
-
-- Update sequences within one global cycle (triplex_12B_step)
-  1) Read UnitDelay: PC_prev, TC_prev, FC_prev <= rtDW.Delay1_DSTATE[*].
-  2) Compute miscompare booleans AB, BC, AC.
-  3) Evaluate monitor logic (cases 1–8 above) to produce rtDW.Merge_e[0..2] = [PC_next, TC_next, FC_next].
-  4) Write outputs rtY.PC, rtY.TC, rtY.FC from rtDW.Merge_e[0..2] immediately.
-  5) Selector computes rtDW.Merge (sel_val) based on rtDW.Merge_e[2] (FC_next) in the same cycle and writes rtY.sel_val.
-  6) UnitDelay update (VERY IMPORTANT): after outputs have been computed, assign:
-     - rtDW.Delay1_DSTATE[0] = rtDW.Merge_e[0]  // PC_next
-     - rtDW.Delay1_DSTATE[1] = rtDW.Merge_e[1]  // TC_next
-     - rtDW.Delay1_DSTATE[2] = rtDW.Merge_e[2]  // FC_next
-
+3. Timing Considerations
+- Update sequences (within each triplex_12B_step)
+  - Read previous state from rtDW.Delay1_DSTATE[...] at the start of the function.
+  - Compute miscompare booleans and pattern classifications.
+  - Execute monitor If-Else chain to produce next state rtDW.Merge_e[...] (PC/TC/FC for this cycle).
+  - Drive outputs rtY.PC, rtY.TC, rtY.FC from rtDW.Merge_e.
+  - Compute selection rtDW.Merge (and thus rtY.sel_val) based on rtDW.Merge_e[2] (FC) from the same cycle.
+  - UnitDelay update (VERY IMPORTANT): after outputs are produced, at the end of the function
+    - rtDW.Delay1_DSTATE[0] = rtDW.Merge_e[0]
+    - rtDW.Delay1_DSTATE[1] = rtDW.Merge_e[1]
+    - rtDW.Delay1_DSTATE[2] = rtDW.Merge_e[2]
 - Critical dependencies
-  - All state checks must use end-of-cycle values (rtY.*), consistent with the note that the checkpoint is after the global step call.
-  - The selector’s behavior depends on rtDW.Merge_e[2] computed in the same cycle (not on rtDW.Delay1_DSTATE[2]). Thus, a newly latched FC immediately affects selection within the same cycle.
-  - Latch threshold uses “> rtU.PClimit” (strictly greater), not “>=”. This results in latching on the (PClimit + 1)-th consecutive identifiable-miscompare cycle.
-  - TC increments:
-    - During pending identifiable miscompare (case 4).
-    - During fully ambiguous miscompare where all three pairs differ (case 8).
-    - TC does not increment on latch cycles (cases 5–7).
-  - PC decrements only when no miscompare and PC_prev > 0 (case 2). PC resets to 0 on latch (cases 5–7) and on clear (case 1).
+  - Latching requires both:
+    - A single-branch isolation pattern (A/B/C-fail pattern), and
+    - PC_prev > rtU.PClimit at the start of the latching cycle.
+  - Pending failure increments (Act4) occur only when a single-branch isolation pattern holds and PC_prev <= rtU.PClimit.
+  - “No-miscompare” leads to:
+    - If PC_prev == 0: keep PC=0 (Act1).
+    - If PC_prev > 0: decrement PC by 1 (Act2).
+  - Exactly one-pair miscompare (and the other two within Tlevel) leaves PC/TC/FC unchanged (Act3).
+  - “All-three miscompare” increments TC only (Act8); does not change PC or FC; selection method is unchanged because FC is unchanged.
+- Cycle requirements
+  - Each call to triplex_12B_step is one cycle.
+  - All verifications should be performed at the end of the cycle.
+  - For RM-001, from first detection of a persistent single-branch isolation pattern with PC_prev=0, latching occurs on the (rtU.PClimit + 1)-th consecutive miscompare frame; the latch sets FC to {1,2,4} according to which branch is isolated and resets PC to 0 in that same cycle.
 
-- Cycle requirements per requirement
-  - [RM-001]: Latch after N = rtU.PClimit + 1 consecutive cycles of the same unique outlier miscompare. Verify FC and PC at cycle end of cycle N; verify PC and TC increments on cycles 1..(N-1).
-  - [RM-002]: On every cycle where rtDW.Merge_e[2] == 0 at the end of the monitor decision, verify rtY.sel_val equals the mid-value computed by the stated mean-based algorithm.
-  - [RM-003]: On every cycle where rtDW.Merge_e[2] ∈ {1,2,4}, verify rtY.sel_val equals the average of the two good channels corresponding to FC.
-  - [RM-004]: Not implemented. There is no cycle where sel_val is held (frozen) due to a second failure in progress; selection remains a recomputed GCA in the single-fail state.
-
-End of file.
+END OF FILE

@@ -1,4 +1,3 @@
-```c
 /*
  * ert_main.c - ESBMC verification harness with assertion-based checks
  * Requirements covered: RM-001, RM-002, RM-003, RM-004
@@ -353,4 +352,3 @@ int main(void)
 
   return 0;
 }
-```

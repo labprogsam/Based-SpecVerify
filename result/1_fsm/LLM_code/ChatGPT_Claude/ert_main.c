@@ -1,216 +1,186 @@
-Looking at the requirements and analysis, I'll create an `ert_main.c` file with assertion-based verification for all 13 requirements. Here's the implementation:
-
-```c
 #include "fsm_12B_global.h"
-#include "rtwtypes.h"
-#include <stdio.h>
+#include "fsm_12B_global.c"
+#include <stdbool.h>
 
-/* Nondet functions for ESBMC */
-_Bool nondet_bool(void);
+// ESBMC nondet functions
+_Bool nondet_bool();
 
-/* State value definitions for readability */
-#define AP_TRANSITION 0.0
-#define AP_NOMINAL    1.0
-#define AP_MANEUVER   2.0
-#define AP_STANDBY    3.0
+// Helper function to save previous state values
+void save_prev_state(real_T *prev_ap_state, real_T *prev_sen_state, _Bool *prev_sen_good) {
+    *prev_ap_state = rtDW.UnitDelay_DSTATE;
+    *prev_sen_state = rtDW.UnitDelay1_DSTATE;
+    *prev_sen_good = rtDW.UnitDelay2_DSTATE;
+}
 
-#define SEN_NOMINAL    0.0
-#define SEN_TRANSITION 1.0
-#define SEN_FAULT      2.0
-
-int main(void) {
-    /* Initialize the model */
+int main() {
+    // Variables to track previous states
+    real_T prev_ap_state;
+    real_T prev_sen_state;
+    _Bool prev_sen_good;
+    
+    // Initialize the system
     fsm_12B_global_initialize();
     
-    /* Variables to track previous states for verification */
-    real_T prev_AP_state;
-    real_T prev_SEN_state;
-    _Bool prev_sensor_good;
-    _Bool prev_pullup;
-    
-    /* Run the system for multiple cycles */
+    // Run system for multiple cycles
     int loop_count = 0;
-    int max_loops = 10; /* Reasonable number for verification */
-    
-    while(loop_count < max_loops) {
-        /* Save previous states before step */
-        prev_AP_state = rtDW.UnitDelay_DSTATE;
-        prev_SEN_state = rtDW.UnitDelay1_DSTATE;
-        prev_sensor_good = rtDW.UnitDelay2_DSTATE;
-        prev_pullup = rtY.pullup;
+    while (loop_count < 10) {
+        // Save previous state before step
+        save_prev_state(&prev_ap_state, &prev_sen_state, &prev_sen_good);
         
-        /* Set nondeterministic inputs */
+        // Set nondeterministic inputs
         rtU.standby = nondet_bool();
         rtU.apfail = nondet_bool();
         rtU.supported = nondet_bool();
         rtU.limits = nondet_bool();
         
-        /* Execute one step */
+        // Run one step
         fsm_12B_global_step();
         
-        /* Verification Properties */
-        
 #ifdef VERIFY_PROPERTY_1
-        /* Requirement 1: Exceeding sensor limits shall latch an autopilot pullup 
-           when the pilot is not in control and the system is supported without failures */
-        if (prev_AP_state == AP_NOMINAL && prev_SEN_state == SEN_NOMINAL && 
-            prev_sensor_good == 1 && rtU.limits == 1 && rtU.standby == 0 && 
-            rtU.supported == 1 && rtU.apfail == 0) {
-            /* After this cycle, sensor should be in FAULT */
-            __ESBMC_assert(rtY.SENSTATE == SEN_FAULT, "R1: Sensor should enter FAULT when limits exceeded");
-            /* In next cycle, autopilot should enter MANEUVER with pullup */
-            /* Note: We verify the latching behavior - once sensor is in fault, 
-               autopilot will transition to MANEUVER in next cycle */
-        }
-        
-        /* Check pullup latching in MANEUVER state */
-        if (rtY.STATE == AP_MANEUVER) {
-            __ESBMC_assert(rtY.pullup == 1, "R1: Pullup should be true in MANEUVER state");
+        // Requirement 1: Exceeding sensor limits shall latch an autopilot pullup
+        // Check at t1 after limits was true at t0
+        if (loop_count >= 1) {
+            // If at previous cycle: AP was NOMINAL, sensor was NOMINAL, 
+            // limits became true, and conditions met
+            if (prev_ap_state == 1.0 && prev_sen_state == 0.0 && 
+                rtU.limits && !rtU.standby && rtU.supported && !rtU.apfail) {
+                // After one more cycle, pullup should be active
+                save_prev_state(&prev_ap_state, &prev_sen_state, &prev_sen_good);
+                rtU.standby = false;
+                rtU.supported = true;
+                rtU.apfail = false;
+                rtU.limits = true;
+                fsm_12B_global_step();
+                __ESBMC_assert(rtY.STATE == 2.0 && rtY.pullup == true,
+                              "Property 1: Pullup should latch after limits exceeded");
+            }
         }
 #endif
 
 #ifdef VERIFY_PROPERTY_2
-        /* Requirement 2: The autopilot shall change states from TRANSITION to STANDBY 
-           when the pilot is in control */
-        if (prev_AP_state == AP_TRANSITION && rtU.standby == 1) {
-            __ESBMC_assert(rtY.STATE == AP_STANDBY, "R2: AP should transition from TRANSITION to STANDBY when standby is true");
+        // Requirement 2: AP changes from TRANSITION to STANDBY when standby is true
+        if (prev_ap_state == 0.0 && rtU.standby == true) {
+            __ESBMC_assert(rtY.STATE == 3.0,
+                          "Property 2: AP should transition from TRANSITION to STANDBY when standby");
         }
 #endif
 
 #ifdef VERIFY_PROPERTY_3
-        /* Requirement 3: The autopilot shall change states from TRANSITION to NOMINAL 
-           when the system is supported and sensor data is good */
-        if (prev_AP_state == AP_TRANSITION && rtU.supported == 1 && 
-            prev_sensor_good == 1 && rtU.standby == 0) {
-            __ESBMC_assert(rtY.STATE == AP_NOMINAL, "R3: AP should transition from TRANSITION to NOMINAL when supported and sensor good");
+        // Requirement 3: AP changes from TRANSITION to NOMINAL when supported and sensor good
+        if (prev_ap_state == 0.0 && prev_sen_good == true && rtU.supported == true) {
+            __ESBMC_assert(rtY.STATE == 1.0,
+                          "Property 3: AP should transition from TRANSITION to NOMINAL when supported and sensor good");
         }
 #endif
 
 #ifdef VERIFY_PROPERTY_4
-        /* Requirement 4: The autopilot shall change states from NOMINAL to MANEUVER 
-           when the sensor data is not good */
-        if (prev_AP_state == AP_NOMINAL && prev_sensor_good == 0 && rtU.standby == 0) {
-            __ESBMC_assert(rtY.STATE == AP_MANEUVER, "R4: AP should transition from NOMINAL to MANEUVER when sensor not good");
-            __ESBMC_assert(rtY.pullup == 1, "R4: Pullup should be active in MANEUVER state");
+        // Requirement 4: AP changes from NOMINAL to MANEUVER when sensor not good
+        if (prev_ap_state == 1.0 && prev_sen_good == false) {
+            __ESBMC_assert(rtY.STATE == 2.0 && rtY.pullup == true,
+                          "Property 4: AP should transition from NOMINAL to MANEUVER when sensor not good");
         }
 #endif
 
 #ifdef VERIFY_PROPERTY_5
-        /* Requirement 5: The autopilot shall change states from NOMINAL to STANDBY 
-           when the pilot is in control */
-        if (prev_AP_state == AP_NOMINAL && rtU.standby == 1) {
-            __ESBMC_assert(rtY.STATE == AP_STANDBY, "R5: AP should transition from NOMINAL to STANDBY when standby is true");
+        // Requirement 5: AP changes from NOMINAL to STANDBY when standby
+        if (prev_ap_state == 1.0 && rtU.standby == true) {
+            __ESBMC_assert(rtY.STATE == 3.0,
+                          "Property 5: AP should transition from NOMINAL to STANDBY when standby");
         }
 #endif
 
 #ifdef VERIFY_PROPERTY_6
-        /* Requirement 6: The autopilot shall change states from MANEUVER to STANDBY 
-           when the pilot is in control and sensor data is good */
-        if (prev_AP_state == AP_MANEUVER && rtU.standby == 1 && prev_sensor_good == 1) {
-            __ESBMC_assert(rtY.STATE == AP_STANDBY, "R6: AP should transition from MANEUVER to STANDBY when standby true and sensor good");
-            __ESBMC_assert(rtY.pullup == 0, "R6: Pullup should be false after leaving MANEUVER");
+        // Requirement 6: AP changes from MANEUVER to STANDBY when standby and sensor good
+        if (prev_ap_state == 2.0 && prev_sen_good == true && rtU.standby == true) {
+            __ESBMC_assert(rtY.STATE == 3.0 && rtY.pullup == false,
+                          "Property 6: AP should transition from MANEUVER to STANDBY when standby and sensor good");
         }
 #endif
 
 #ifdef VERIFY_PROPERTY_7
-        /* Requirement 7: The autopilot shall change states from PULLUP (MANEUVER) to TRANSITION 
-           when the system is supported and sensor data is good */
-        if (prev_AP_state == AP_MANEUVER && rtU.supported == 1 && 
-            prev_sensor_good == 1 && rtU.standby == 0) {
-            __ESBMC_assert(rtY.STATE == AP_TRANSITION, "R7: AP should transition from MANEUVER to TRANSITION when supported and sensor good");
-            __ESBMC_assert(rtY.pullup == 0, "R7: Pullup should be false after transition to TRANSITION");
+        // Requirement 7: AP changes from MANEUVER to TRANSITION when supported and sensor good
+        if (prev_ap_state == 2.0 && prev_sen_good == true && rtU.supported == true) {
+            __ESBMC_assert(rtY.STATE == 0.0 && rtY.pullup == false,
+                          "Property 7: AP should transition from MANEUVER to TRANSITION when supported and sensor good");
         }
 #endif
 
 #ifdef VERIFY_PROPERTY_8
-        /* Requirement 8: The autopilot shall change states from STANDBY to TRANSITION 
-           when the pilot is not in control */
-        if (prev_AP_state == AP_STANDBY && rtU.standby == 0 && rtU.apfail == 0) {
-            __ESBMC_assert(rtY.STATE == AP_TRANSITION, "R8: AP should transition from STANDBY to TRANSITION when not standby");
+        // Requirement 8: AP changes from STANDBY to TRANSITION when not standby
+        if (prev_ap_state == 3.0 && rtU.standby == false) {
+            __ESBMC_assert(rtY.STATE == 0.0,
+                          "Property 8: AP should transition from STANDBY to TRANSITION when not standby");
         }
 #endif
 
 #ifdef VERIFY_PROPERTY_9
-        /* Requirement 9: The autopilot shall change states from STANDBY to MANEUVER 
-           when a failure occurs */
-        if (prev_AP_state == AP_STANDBY && rtU.apfail == 1) {
-            __ESBMC_assert(rtY.STATE == AP_MANEUVER, "R9: AP should transition from STANDBY to MANEUVER when apfail is true");
-            __ESBMC_assert(rtY.pullup == 1, "R9: Pullup should be true when entering MANEUVER");
+        // Requirement 9: AP changes from STANDBY to MANEUVER when apfail
+        if (prev_ap_state == 3.0 && rtU.apfail == true) {
+            __ESBMC_assert(rtY.STATE == 2.0 && rtY.pullup == true,
+                          "Property 9: AP should transition from STANDBY to MANEUVER when apfail");
         }
 #endif
 
 #ifdef VERIFY_PROPERTY_10
-        /* Requirement 10: The sensor shall change states from NOMINAL to FAULT 
-           when limits are exceeded */
-        if (prev_SEN_state == SEN_NOMINAL && rtU.limits == 1) {
-            __ESBMC_assert(rtY.SENSTATE == SEN_FAULT, "R10: Sensor should transition from NOMINAL to FAULT when limits exceeded");
+        // Requirement 10: Sensor changes from NOMINAL to FAULT when limits exceeded
+        if (prev_sen_state == 0.0 && rtU.limits == true) {
+            __ESBMC_assert(rtY.SENSTATE == 2.0,
+                          "Property 10: Sensor should transition from NOMINAL to FAULT when limits");
         }
 #endif
 
 #ifdef VERIFY_PROPERTY_11
-        /* Requirement 11: The sensor shall change states from NOMINAL to TRANSITION 
-           when the autopilot is not requesting support */
-        if (prev_SEN_state == SEN_NOMINAL && rtY.STATE == AP_STANDBY && rtU.limits == 0) {
-            /* In STANDBY, REQUEST is false (Merge_p[1] = false) */
-            __ESBMC_assert(rtY.SENSTATE == SEN_TRANSITION, "R11: Sensor should transition from NOMINAL to TRANSITION when request is false");
+        // Requirement 11: Sensor changes from NOMINAL to TRANSITION when not request
+        // REQUEST is false only when AP is in STANDBY (3.0)
+        if (prev_sen_state == 0.0 && rtDW.Merge == 3.0) {
+            __ESBMC_assert(rtY.SENSTATE == 1.0,
+                          "Property 11: Sensor should transition from NOMINAL to TRANSITION when not request");
         }
 #endif
 
 #ifdef VERIFY_PROPERTY_12
-        /* Requirement 12: The sensor shall change states from FAULT to TRANSITION 
-           when the autopilot is not requesting support and limits are not exceeded */
-        if (prev_SEN_state == SEN_FAULT) {
-            /* Check if either condition is met for transition to TRANSITION */
-            if ((rtY.STATE == AP_STANDBY) || (rtU.limits == 0)) {
-                __ESBMC_assert(rtY.SENSTATE == SEN_TRANSITION, "R12: Sensor should transition from FAULT to TRANSITION when not request OR not limits");
+        // Requirement 12: Sensor changes from FAULT to TRANSITION when not request OR not limits
+        if (prev_sen_state == 2.0) {
+            // Check if transition should occur
+            _Bool should_transition = (rtDW.Merge == 3.0) || (!rtU.limits);
+            if (should_transition) {
+                __ESBMC_assert(rtY.SENSTATE == 1.0,
+                              "Property 12: Sensor should transition from FAULT to TRANSITION when not request or not limits");
             }
         }
 #endif
 
 #ifdef VERIFY_PROPERTY_13
-        /* Requirement 13: The sensor shall change states from TRANSITION to NOMINAL 
-           when the autopilot is requesting support and reports the correct active mode */
-        if (prev_SEN_state == SEN_TRANSITION) {
-            /* REQUEST and MODE are both true in NOMINAL and MANEUVER states */
-            if ((rtY.STATE == AP_NOMINAL) || (rtY.STATE == AP_MANEUVER)) {
-                __ESBMC_assert(rtY.SENSTATE == SEN_NOMINAL, "R13: Sensor should transition from TRANSITION to NOMINAL when request and mode are true");
+        // Requirement 13: Sensor changes from TRANSITION to NOMINAL when request AND mode
+        if (prev_sen_state == 1.0) {
+            // REQUEST is true when AP not in STANDBY
+            // MODE is true when AP not in TRANSITION
+            _Bool request = (rtDW.Merge != 3.0);
+            _Bool mode = (rtDW.Merge != 0.0);
+            if (request && mode) {
+                __ESBMC_assert(rtY.SENSTATE == 0.0,
+                              "Property 13: Sensor should transition from TRANSITION to NOMINAL when request and mode");
             }
         }
 #endif
 
-        /* Update loop counter */
         loop_count++;
-        
-        /* Additional invariants that should always hold */
-        
-        /* State range checks */
-        __ESBMC_assert(rtY.STATE >= 0.0 && rtY.STATE <= 3.0, "Autopilot STATE should be in valid range [0,3]");
-        __ESBMC_assert(rtY.SENSTATE >= 0.0 && rtY.SENSTATE <= 2.0, "Sensor SENSTATE should be in valid range [0,2]");
-        
-        /* Pullup should only be true in MANEUVER state */
-        if (rtY.pullup == 1) {
-            __ESBMC_assert(rtY.STATE == AP_MANEUVER, "Pullup should only be true in MANEUVER state");
-        }
-        
-        /* MANEUVER state should always have pullup active */
-        if (rtY.STATE == AP_MANEUVER) {
-            __ESBMC_assert(rtY.pullup == 1, "MANEUVER state should always have pullup active");
-        }
     }
     
     return 0;
 }
-```
+// 4. **Verifies each requirement separately** - Each property is wrapped in its own `#ifdef` block for selective verification
 
-This implementation provides:
+// 5. **Handles timing requirements correctly**:
+//    - Property 1 handles the one-cycle delay for sensor fault affecting autopilot
+//    - Other properties check immediate transitions based on current conditions
 
-1. **Proper initialization** using `fsm_12B_global_initialize()`
-2. **State tracking** using variables to save previous states before each step
-3. **Nondeterministic inputs** using `nondet_bool()` for all boolean inputs
-4. **Complete property verification** for all 13 requirements using `__ESBMC_assert`
-5. **Preprocessor control** using `#ifdef VERIFY_PROPERTY_N` for each requirement
-6. **Reasonable loop bound** (10 iterations) for bounded model checking
-7. **State preservation** by tracking previous values before each step execution
-8. **Additional invariants** to verify state ranges and pullup consistency
+// 6. **Checks state consistency** - Verifies both state values and output signals (like pullup)
 
-Each property can be individually verified by defining the corresponding `VERIFY_PROPERTY_N` macro when running ESBMC. The code correctly handles the 1-cycle latency for sensor-good dependent transitions and verifies both immediate and delayed state transitions as specified in the requirements.
+// 7. **Uses correct state encodings**:
+//    - Autopilot: 0.0=TRANSITION, 1.0=NOMINAL, 2.0=MANEUVER, 3.0=STANDBY
+//    - Sensor: 0.0=NOMINAL, 1.0=TRANSITION, 2.0=FAULT
+
+// 8. **Properly handles internal signals** - For requirements involving REQUEST and MODE, the code correctly derives these from the autopilot state
+
+// The code can be used with ESBMC by defining the appropriate `VERIFY_PROPERTY_N` macro during compilation to verify each requirement individually.

@@ -1,6 +1,3 @@
-Based on the analysis, I'll generate an assertion-based C code in `ert_main.c` for verification with ESBMC. The code will verify all 5 requirements from the formal specification.
-
-```c
 #include "EB_12B.h"
 #include "EB_12B_data.c"
 #include <math.h>
@@ -153,19 +150,6 @@ int main(void) {
     
     return 0;
 }
-```
-
-This verification code includes:
-
-1. **Property 1**: Verifies that when `ridge_on` is true (determinant ≤ 1e-12), the check matrix accuracy is within 1e-6
-2. **Property 2**: Verifies that when `ridge_on` is false (determinant > 1e-12), the check matrix accuracy is within 1e-12
-3. **Property 3**: Verifies that output `u` is correctly computed as a 5x1 vector from P*d
-4. **Property 4**: Verifies that the 2-norm of `Buminusd` is less than 0.01
-5. **Property 5**: Verifies that cost J is computed correctly and represents the minimum possible value
-
-Key features:
-- Uses `nondet_double()` for non-deterministic inputs
-- Bounds inputs with `__ESBMC_assume()` for reasonable ranges
 - Uses preprocessing macros (`#ifdef VERIFY_PROPERTY_N`) to control which properties to verify
 - Runs the system in a while loop with reasonable iterations
 - Saves previous state values (without using static variables)
@@ -173,10 +157,8 @@ Key features:
 - Uses `__ESBMC_assert()` for verification conditions
 
 To verify each property with ESBMC, compile with the appropriate define:
-```bash
 esbmc ert_main.c -DVERIFY_PROPERTY_1
 esbmc ert_main.c -DVERIFY_PROPERTY_2
 esbmc ert_main.c -DVERIFY_PROPERTY_3
 esbmc ert_main.c -DVERIFY_PROPERTY_4
 esbmc ert_main.c -DVERIFY_PROPERTY_5
-```

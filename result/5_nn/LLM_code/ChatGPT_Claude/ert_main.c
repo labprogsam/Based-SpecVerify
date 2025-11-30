@@ -1,6 +1,3 @@
-Looking at the requirements and the neural network code, I'll create an `ert_main.c` file with assertion-based verification using ESBMC. The code will verify all four requirements with appropriate properties.
-
-```c
 #include "nn_12B.h"
 #include "nn_12B.c"
 #include "nn_12B_data.c"
@@ -249,18 +246,6 @@ int main_random_walk(void) {
     return 0;
 }
 #endif
-```
-
-This verification code includes:
-
-1. **Property 1** (Maximum output ≤ 1.1): Checked after each `nn_12B_step()` call
-2. **Property 2** (Minimum output ≥ -0.2): Checked after each `nn_12B_step()` call  
-3. **Property 3** (Spatial derivatives bounds): Checked using backward differences between consecutive iterations
-4. **Property 4** (Absolute error ≤ 0.01): Checked against nondeterministic truth values (in practice, would use actual dataset)
-
-To use with ESBMC:
-
-```bash
 # Verify Property 1
 esbmc ert_main.c -DVERIFY_PROPERTY_1 --no-bounds-check --no-pointer-check
 
@@ -278,10 +263,6 @@ esbmc ert_main.c -DVERIFY_WITH_SCENARIOS -DVERIFY_PROPERTY_1 --no-bounds-check -
 
 # Verify with random walk for derivatives
 esbmc ert_main.c -DVERIFY_RANDOM_WALK -DVERIFY_PROPERTY_3 --no-bounds-check --no-pointer-check
-```
-
-The code:
-- Uses nondeterministic inputs within reasonable bounds
 - Maintains previous state values without static variables
 - Implements all four requirements as separate properties
 - Uses preprocessing macros to control which properties to verify

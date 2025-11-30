@@ -1,6 +1,3 @@
-Looking at the requirements and code analysis, I'll generate an assertion-based C code for verification. Here's the `ert_main.c`:
-
-```c
 #include <math.h>
 #include <stdio.h>
 #include "NLGuidance_12B.h"

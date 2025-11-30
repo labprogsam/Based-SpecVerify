@@ -292,11 +292,3 @@ int main(void)
 
   return 0;
 }
-
-Notes:
-- Each requirement is guarded by a separate VERIFY_PROPERTY_N macro to enable/disable specific checks during verification.
-- The harness recomputes the same analytic expressions as the generated code to derive CW and CCW candidates and mode decisions.
-- The while loop bounds and time step can be adjusted via LOOP_MAX and TIME_STEP macros.
-- No static variables are used to store previous state; prev_yout and has_prev are ordinary local variables in main.
-- Nondeterministic inputs are constrained with __ESBMC_assume to maintain physically meaningful ranges and avoid runtime anomalies (e.g., overflow).
-- System external names (rtU, rtY, NLGuidance_12B_step) are used exactly as in the provided code.

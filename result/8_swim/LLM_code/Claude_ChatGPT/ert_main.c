@@ -1,4 +1,3 @@
-```c
 /* ert_main.c
  * ESBMC verification harness with assertion-based properties
  * Requirements covered:
@@ -191,4 +190,3 @@ int main(void)
 
   return 0;
 }
-```

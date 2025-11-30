@@ -1,6 +1,3 @@
-Looking at the requirements and code analysis, I'll generate an assertion-based C code for verification using ESBMC. The code will verify all 8 requirements using appropriate assertions.
-
-```c
 /* ert_main.c - Assertion-based verification for euler321_I2B_12B model */
 
 #include "euler321_I2B_12B.h"
@@ -264,20 +261,3 @@ int main(void) {
     
     return 0;
 }
-```
-
-This verification code:
-
-1. Sets up a bounded while loop (5 iterations) for verification
-2. Uses non-deterministic inputs with reasonable bounds
-3. Implements all 8 requirements as separate properties using `#ifdef VERIFY_PROPERTY_N`
-4. Uses `__ESBMC_assert` for verification assertions
-5. Stores previous values to verify Requirement 5 (distinct theta)
-6. Implements helper functions for determinant calculation and dot products
-7. Uses proper tolerance checking for floating-point comparisons
-8. Follows the exact computation order from the original model
-
-To verify each property with ESBMC, compile with the corresponding macro defined:
-- `esbmc ert_main.c euler321_I2B_12B.c -DVERIFY_PROPERTY_1`
-- `esbmc ert_main.c euler321_I2B_12B.c -DVERIFY_PROPERTY_2`
-- etc.

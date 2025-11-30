@@ -12,6 +12,7 @@ import os
 import sys
 import json
 import argparse
+import re
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from pathlib import Path
@@ -261,14 +262,77 @@ class LLMGenerator:
             'c_code': c_code
         })
         
+        # Limpa o código gerado (remove markdown, texto explicativo, etc.)
+        cleaned_code = self._clean_generated_code(ert_main_code)
+        
         # Salva o resultado
         os.makedirs(output_dir, exist_ok=True)
         output_path = os.path.join(output_dir, "ert_main.c")
         with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(ert_main_code)
+            f.write(cleaned_code)
         
         print(f"✓ Código de verificação salvo em: {output_path}")
         return output_path
+    
+    def _clean_generated_code(self, code: str) -> str:
+        """Remove markdown, texto explicativo e outros elementos não-C do código gerado
+        
+        Args:
+            code: Código bruto gerado pela LLM
+            
+        Returns:
+            Código C limpo e válido
+        """
+        lines = code.split('\n')
+        cleaned_lines = []
+        in_code_block = False
+        skip_until_code = False
+        
+        for line in lines:
+            # Detecta início de bloco de código markdown
+            if line.strip().startswith('```'):
+                in_code_block = not in_code_block
+                continue
+            
+            # Se estamos dentro de um bloco de código, adiciona a linha
+            if in_code_block:
+                cleaned_lines.append(line)
+                continue
+            
+            # Se encontrou texto explicativo antes do código, pula até encontrar código válido
+            if not skip_until_code:
+                # Verifica se a linha parece ser código C válido
+                stripped = line.strip()
+                if stripped and not stripped.startswith('Looking') and not stripped.startswith('Based on'):
+                    # Verifica se parece código C (tem #include, /*, //, ou começa com código válido)
+                    if (stripped.startswith('#') or 
+                        stripped.startswith('/*') or 
+                        stripped.startswith('//') or
+                        stripped.startswith('*') or
+                        any(keyword in stripped for keyword in ['#include', 'int ', 'void ', 'double ', '_Bool ', 'extern ', 'static ', 'const ', '#define', '#ifdef', '#endif'])):
+                        skip_until_code = True
+                        cleaned_lines.append(line)
+                # Se não parece código, pula
+                continue
+            
+            # Após encontrar código válido, adiciona todas as linhas
+            cleaned_lines.append(line)
+        
+        # Se não encontrou código válido, tenta extrair de blocos markdown
+        if not cleaned_lines or not any('#include' in line for line in cleaned_lines):
+            # Tenta encontrar código entre ```c e ```
+            code_block_pattern = r'```c\s*\n(.*?)```'
+            matches = re.findall(code_block_pattern, code, re.DOTALL)
+            if matches:
+                cleaned_lines = matches[0].split('\n')
+        
+        # Remove linhas vazias no início e fim
+        while cleaned_lines and not cleaned_lines[0].strip():
+            cleaned_lines.pop(0)
+        while cleaned_lines and not cleaned_lines[-1].strip():
+            cleaned_lines.pop()
+        
+        return '\n'.join(cleaned_lines)
 
 def load_config(config_path: str) -> Dict[str, Any]:
     """Carrega configuração de arquivo JSON"""
@@ -495,11 +559,20 @@ Exemplos de uso:
         print(f"✓ Usando especificação formal existente: {formal_spec_path}")
     
     # Copia arquivos .c e .h necessários para o diretório de saída
+    # Faz isso sempre que necessário (Fase 1 ou Fase 2)
     if not args.only_phase or args.only_phase == 1:
         if c_code_file:
             shutil.copy(c_code_file, output_dir)
             print(f"✓ Arquivo .c copiado para: {output_dir}")
         if h_file:
+            shutil.copy(h_file, output_dir)
+            print(f"✓ Arquivo .h copiado para: {output_dir}")
+    elif args.only_phase == 2:
+        # Na Fase 2, também precisa copiar os arquivos se não existirem
+        if c_code_file and not os.path.exists(os.path.join(output_dir, os.path.basename(c_code_file))):
+            shutil.copy(c_code_file, output_dir)
+            print(f"✓ Arquivo .c copiado para: {output_dir}")
+        if h_file and not os.path.exists(os.path.join(output_dir, os.path.basename(h_file))):
             shutil.copy(h_file, output_dir)
             print(f"✓ Arquivo .h copiado para: {output_dir}")
     

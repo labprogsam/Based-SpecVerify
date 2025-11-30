@@ -201,10 +201,23 @@ class PropertyVerifier:
                                   timeout=600)
             output = result.stdout + result.stderr
             
+            # Detecta diferentes tipos de resultados
             if "VERIFICATION SUCCESSFUL" in output:
                 status = "SUCCESSFUL"
             elif "VERIFICATION FAILED" in output:
                 status = "FAILED"
+            elif "ERROR: PARSING ERROR" in output or "fatal error:" in output or "error:" in output:
+                # Detecta erros de parsing/compilação
+                if "file not found" in output.lower():
+                    status = "PARSE_ERROR_MISSING_HEADER"
+                elif "unknown type name" in output.lower() or "expected" in output.lower():
+                    status = "PARSE_ERROR_SYNTAX"
+                else:
+                    status = "PARSE_ERROR"
+            elif "Verification timed out" in output or "TIMEOUT" in output:
+                status = "TIMEOUT"
+            elif result.returncode != 0:
+                status = "ERROR"
             else:
                 status = "UNKNOWN"
         except subprocess.TimeoutExpired:
@@ -278,13 +291,14 @@ class PropertyVerifier:
         
         return properties_found
 
-def process_llm_directory(verifier, llm_dir, property_filter=None):
+def process_llm_directory(verifier, llm_dir, property_filter=None, attempt_filter=None):
     """Process all subdirectories in an LLM directory
     
     Args:
         verifier: Instância de PropertyVerifier
         llm_dir: Diretório LLM_code
         property_filter: Se fornecido, verifica apenas esta propriedade
+        attempt_filter: Lista de nomes de subdiretórios para filtrar (ex: ['ChatGPT_Claude', 'Claude_ChatGPT'])
     """
     directories_processed = 0
     
@@ -301,6 +315,12 @@ def process_llm_directory(verifier, llm_dir, property_filter=None):
     for item in os.listdir(llm_dir):
         subdir_path = os.path.join(llm_dir, item)
         if os.path.isdir(subdir_path):
+            # Aplica filtro de subdiretório se fornecido
+            if attempt_filter is not None:
+                if item not in attempt_filter:
+                    print(f"Skipping subdirectory: {item} (not in filter)")
+                    continue
+            
             print(f"Checking subdirectory: {subdir_path}")
             if verifier.process_directory(subdir_path, results_dir, task_name, property_filter):
                 directories_processed += 1
@@ -400,13 +420,21 @@ Exemplos de uso:
   # Executar apenas uma propriedade específica
   python run_verification.py --task 1_fsm --property 1
   
-  # Combinar filtros
-  python run_verification.py --task 1_fsm --property 1
+  # Executar apenas subdiretórios específicos (ChatGPT_Claude e Claude_ChatGPT)
+  python run_verification.py --attempt-filter ChatGPT_Claude Claude_ChatGPT
+  
+  # Combinar filtros: task + subdiretórios específicos
+  python run_verification.py --task 1_fsm --attempt-filter ChatGPT_Claude Claude_ChatGPT
+  
+  # Combinar todos os filtros
+  python run_verification.py --task 1_fsm --property 1 --attempt-filter ChatGPT_Claude
         """
     )
     parser.add_argument('--task', help='Nome da tarefa para filtrar (ex: 1_fsm, 0_triplex)')
     parser.add_argument('--llm-dir', help='Caminho completo para diretório LLM_code específico')
     parser.add_argument('--property', type=int, help='Número da propriedade para verificar (ex: 1, 2, 3)')
+    parser.add_argument('--attempt-filter', nargs='+', 
+                       help='Lista de nomes de subdiretórios para filtrar (ex: ChatGPT_Claude Claude_ChatGPT)')
     parser.add_argument('--no-csv', action='store_true', help='Não gerar arquivo CSV de resumo')
     
     args = parser.parse_args()
@@ -429,12 +457,15 @@ Exemplos de uso:
     if args.property:
         print(f"\n⚠️  Modo filtrado: verificando apenas Property {args.property}")
     
+    if args.attempt_filter:
+        print(f"\n⚠️  Modo filtrado: verificando apenas subdiretórios: {args.attempt_filter}")
+    
     verifier = PropertyVerifier()
     total_directories_processed = 0
     
     for llm_dir in llm_dirs:
         print(f"\nProcessando diretório LLM: {llm_dir}")
-        directories_processed = process_llm_directory(verifier, llm_dir, args.property)
+        directories_processed = process_llm_directory(verifier, llm_dir, args.property, args.attempt_filter)
         total_directories_processed += directories_processed
     
     if total_directories_processed == 0:

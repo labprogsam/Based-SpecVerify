@@ -1,0 +1,147 @@
+Based on the code analysis, here is the systematic analysis of the SWIM Airspeed algorithm:
+
+## 1. State Variable Mapping
+
+### State Variables:
+- **rtDW.UnitDelay_DSTATE**
+  - Type: real_T (double)
+  - Possible values: 0.0, 1.0
+  - Meaning: Previous value of SWIM_ASWarningAllowed (rtb_Merge1)
+  - Update: After swim_12B_step() with value of rtb_Merge1
+
+- **rtDW.UnitDelay_DSTATE_d**
+  - Type: real_T (double)
+  - Possible values: 0.0, 1.0
+  - Meaning: Previous value of swimGet_AgcasLowSpeedWarn (rtb_Sum_p)
+  - Update: After swim_12B_step() with value of rtb_Sum_p
+
+### Input Variables:
+- **rtU.diGet_S_CatSwitchPosition**: Integer (0 = CAT I, non-zero = CAT III)
+- **rtU.muxGet_T_Mux_AircraftGrossWeigh**: Double (aircraft gross weight in lbs)
+- **rtU.E_AI_IMPACT_PRESSURE**: Double (air data impact pressure)
+- **rtU.diGet_S_LandingGearAltFlap**: Boolean (powered approach discrete)
+- **rtU.muxGet_T_Mux_AirspeedMonitorEna**: Boolean (airspeed monitor enable)
+- **rtU.cvGet_V_AgcasLowSpeedWarn**: Boolean (AGCAS low speed warning)
+- **rtU.olcGet_AgcasInterlocks**: Boolean (AGCAS interlocks state)
+
+### Output Variables:
+- **rtY.SWIM_CalAirspeedmin_kts**: Double (minimum AGCAS airspeed)
+- **rtY.SWIM_Qcmin_lbspft2**: Double (warning trigger impact pressure)
+- **rtY.swimGet_QcMinDisable_lbspft2**: Double (disable threshold)
+- **rtY.SWIM_ASWarningAllowed**: Boolean (warning allowed flag)
+- **rtY.swimGet_AgcasLowSpeedWarn**: Boolean (low speed warning)
+
+## 2. Requirement Analysis
+
+### Requirement 1: Minimum AGCAS Airspeed Calculation
+
+**Initial conditions:**
+- System initialized
+- rtU.muxGet_T_Mux_AircraftGrossWeigh has valid value
+
+**Input triggers:**
+- rtU.diGet_S_CatSwitchPosition = 0 (CAT I) or non-zero (CAT III)
+- rtU.muxGet_T_Mux_AircraftGrossWeigh = any positive value
+
+**Expected state changes:**
+- rtb_Merge_d calculated based on CAT switch position
+
+**Output verification:**
+- If rtU.diGet_S_CatSwitchPosition == 0:
+  - rtY.SWIM_CalAirspeedmin_kts = 1.25921 * sqrt(rtU.muxGet_T_Mux_AircraftGrossWeigh) + 10.0
+- If rtU.diGet_S_CatSwitchPosition != 0:
+  - rtY.SWIM_CalAirspeedmin_kts = 1.33694 * sqrt(rtU.muxGet_T_Mux_AircraftGrossWeigh) + 10.0
+
+**Timing requirements:**
+- Single cycle: Output available immediately after swim_12B_step()
+- No state dependency
+
+### Requirement 2: Warning Trigger Impact Pressure and Low Speed Warning
+
+**2a. Warning Trigger Calculation (SWIM_Qcmin_lbspft2)**
+
+**Initial conditions:**
+- rtb_Merge_d calculated (from Requirement 1)
+
+**Input triggers:**
+- Automatic calculation based on rtb_Merge_d
+
+**Expected state changes:**
+- rtb_Gain1 = ((0.020306 * rtb_Merge_d - 2.0906) + 0.1) * 70.7184
+
+**Output verification:**
+- rtY.SWIM_Qcmin_lbspft2 = rtb_Gain1
+
+**Timing requirements:**
+- Single cycle: Calculated within same swim_12B_step() call
+
+**2b. Low Speed Warning Allowed (SWIM_ASWarningAllowed)**
+
+**Initial conditions:**
+- rtDW.UnitDelay_DSTATE initialized (default 0)
+
+**Input triggers:**
+- rtU.diGet_S_LandingGearAltFlap state change
+- rtU.E_AI_IMPACT_PRESSURE value relative to rtb_Gain1
+
+**Expected state changes:**
+- If !rtU.diGet_S_LandingGearAltFlap:
+  - rtb_Merge1 = 0.0
+- Else if rtU.diGet_S_LandingGearAltFlap && (rtU.E_AI_IMPACT_PRESSURE > rtb_Gain1):
+  - rtb_Merge1 = 1.0
+- Else:
+  - rtb_Merge1 = rtDW.UnitDelay_DSTATE (previous value)
+
+**Output verification:**
+- rtY.SWIM_ASWarningAllowed = rtb_Merge1
+- rtDW.UnitDelay_DSTATE updated after swim_12B_step() with rtb_Merge1
+
+**Timing requirements:**
+- State persistence: Previous value available via UnitDelay_DSTATE
+- Update occurs after swim_12B_step() completion
+
+**2c. Low Speed Warning Detection (swimGet_AgcasLowSpeedWarn)**
+
+**Initial conditions:**
+- rtDW.UnitDelay_DSTATE_d initialized (default 0)
+- rtb_Merge1 calculated (warning allowed flag)
+
+**Input triggers:**
+- (rtU.muxGet_T_Mux_AirspeedMonitorEna || rtU.cvGet_V_AgcasLowSpeedWarn) = true
+- (!rtU.olcGet_AgcasInterlocks) = true
+- (rtb_Merge1 == 1.0) = true
+- rtU.E_AI_IMPACT_PRESSURE value relative to (rtb_Gain1 - 28.72)
+
+**Expected state changes:**
+- If all trigger conditions met:
+  - rtb_Sum_p = (rtU.E_AI_IMPACT_PRESSURE < (rtb_Gain1 - 28.72))
+- Else:
+  - rtb_Sum_p = rtDW.UnitDelay_DSTATE_d (previous value)
+
+**Output verification:**
+- rtY.swimGet_AgcasLowSpeedWarn = rtb_Sum_p
+- rtY.swimGet_QcMinDisable_lbspft2 = rtb_Gain1 - 28.72
+- rtDW.UnitDelay_DSTATE_d updated after swim_12B_step() with rtb_Sum_p
+
+**Timing requirements:**
+- State persistence: Previous value available via UnitDelay_DSTATE_d
+- Update occurs after swim_12B_step() completion
+
+## 3. Timing Considerations
+
+### Update Sequences:
+1. All calculations occur within single swim_12B_step() call
+2. State updates occur at end of step function:
+   - rtDW.UnitDelay_DSTATE = rtb_Merge1 (SWIM_ASWarningAllowed state)
+   - rtDW.UnitDelay_DSTATE_d = rtb_Sum_p (swimGet_AgcasLowSpeedWarn state)
+
+### Critical Dependencies:
+1. rtb_Merge_d must be calculated before rtb_Gain1
+2. rtb_Gain1 must be calculated before warning evaluations
+3. rtb_Merge1 must be calculated before rtb_Sum_p evaluation
+4. Previous state values (UnitDelay) available at step start
+
+### Cycle Requirements:
+- **Single Cycle Operations**: All calculations complete within one swim_12B_step() call
+- **State Persistence**: UnitDelay blocks maintain state across cycles
+- **Verification Point**: After swim_12B_step() returns, before next call

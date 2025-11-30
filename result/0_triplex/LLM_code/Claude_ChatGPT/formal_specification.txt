@@ -1,0 +1,154 @@
+# Triplex Signal Monitor Analysis
+
+## 1. State Variable Mapping
+
+### Primary State Variables (via Delay1_DSTATE):
+- **rtDW.Delay1_DSTATE[0]** (PC - Persistence Counter)
+  - Values: 0 to PClimit and beyond
+  - Meaning: Counts consecutive frames of miscompare
+  - Updated after global_step() with rtDW.Merge_e[0]
+
+- **rtDW.Delay1_DSTATE[1]** (TC - Totalizer Counter)  
+  - Values: 0 to infinity (incrementing)
+  - Meaning: Total count of miscompare frames
+  - Updated after global_step() with rtDW.Merge_e[1]
+
+- **rtDW.Delay1_DSTATE[2]** (FC - Fault Code)
+  - Values: 0, 1, 2, 4
+  - Meanings:
+    - 0: No-fail state
+    - 1: Single-fail (Branch C failed)
+    - 2: Single-fail (Branch B failed)  
+    - 4: Single-fail (Branch A failed)
+  - Updated after global_step() with rtDW.Merge_e[2]
+
+### Intermediate State Variables:
+- **rtb_Delay1_idx_0/1/2**: Previous cycle values of PC/TC/FC
+- **rtDW.Merge_e[0/1/2]**: Current cycle computed values for PC/TC/FC
+- **rtDW.Merge**: Selected output value
+
+### Key Boolean Conditions:
+- **rtb_RelationalOperator_o**: |ia - ib| > Tlevel
+- **rtb_RelationalOperator1**: |ib - ic| > Tlevel
+- **rtb_RelationalOperator2**: |ia - ic| > Tlevel
+- **rtb_RelationalOperator3**: Previous PC > 0
+- **rtb_RelationalOperator4**: Previous PC > PClimit
+- **rtb_LogicalOperator6**: No previous miscompare AND all signals agree
+- **rtb_RelationalOperator4_tmp_2**: ia-ib agree AND ib-ic agree
+
+## 2. Requirement Analysis
+
+### [RM-001] No-fail state failure detection
+
+**Initial conditions:**
+- rtDW.Delay1_DSTATE[2] == 0 (FC = 0, no-fail state)
+- rtDW.Delay1_DSTATE[0] == 0 (PC = 0)
+
+**Input triggers:**
+- One branch differs from other two by > Tlevel
+  - Case A fails: (|ia - ib| > Tlevel) AND (|ia - ic| > Tlevel) AND (|ib - ic| <= Tlevel)
+  - Case B fails: (|ia - ib| > Tlevel) AND (|ib - ic| > Tlevel) AND (|ia - ic| <= Tlevel)
+  - Case C fails: (|ia - ic| > Tlevel) AND (|ib - ic| > Tlevel) AND (|ia - ib| <= Tlevel)
+
+**Expected state changes:**
+- PC increments each cycle while miscompare persists
+- TC increments each cycle while miscompare persists
+- When PC > PClimit: FC changes from 0 to failure code (1/2/4)
+
+**Output verification:**
+- rtY.PC tracks persistence count
+- rtY.TC tracks total miscompare count
+- rtY.FC shows latched failure when PC exceeds PClimit
+
+**Timing requirements:**
+- Minimum PClimit + 2 cycles to observe failure latching
+- Check after each global_step() call
+
+### [RM-002] No-fail state mid-value selection
+
+**Initial conditions:**
+- rtDW.Delay1_DSTATE[2] == 0 (FC = 0, no-fail state)
+
+**Input triggers:**
+- Any combination of ia, ib, ic values
+
+**Expected state changes:**
+- None (selection algorithm only)
+
+**Output verification:**
+- rtY.sel_val equals mid-value of {ia, ib, ic}
+- Mid-value determination in Act1/No-Fail subsystem
+- Uses two-stage comparison to find middle value
+
+**Timing requirements:**
+- Immediate (same cycle)
+- Check after global_step() call
+
+### [RM-003] Single-fail state good channel average
+
+**Initial conditions:**
+- rtDW.Delay1_DSTATE[2] ∈ {1, 2, 4} (Single-fail state)
+
+**Input triggers:**
+- Any values for non-failed branches
+
+**Expected state changes:**
+- None (selection algorithm only)
+
+**Output verification:**
+- When FC == 1: rtY.sel_val == (ia + ib) / 2.0
+- When FC == 2: rtY.sel_val == (ia + ic) / 2.0  
+- When FC == 4: rtY.sel_val == (ib + ic) / 2.0
+
+**Timing requirements:**
+- Immediate (same cycle)
+- Check after global_step() call
+
+### [RM-004] Second failure in progress value retention
+
+**Initial conditions:**
+- rtDW.Delay1_DSTATE[2] ∈ {1, 2, 4} (Single-fail state)
+- Previous rtY.sel_val stored
+
+**Input triggers:**
+- Remaining two good branches miscompare (> Tlevel)
+
+**Expected state changes:**
+- TC increments
+- PC may increment (implementation specific)
+- FC remains unchanged (no second failure latched in this model)
+
+**Output verification:**
+- rtY.sel_val should remain previous value
+- NOTE: Implementation uses GCA even during second failure in progress
+
+**Timing requirements:**
+- Multi-cycle observation needed
+- Check consistency across cycles during miscompare
+
+## 3. Timing Considerations
+
+### Update Sequences:
+1. Read previous state from Delay1_DSTATE
+2. Compute miscompare conditions
+3. Determine state transitions via If-Then logic
+4. Update rtDW.Merge_e with new PC/TC/FC values
+5. Compute selected value based on FC
+6. Output current values
+7. **After global_step(): Update Delay1_DSTATE with rtDW.Merge_e values**
+
+### Critical Dependencies:
+- State changes depend on previous cycle's PC and FC values
+- Persistence counting requires maintained miscompare across cycles
+- Fault latching occurs when PC exceeds PClimit
+
+### Cycle Requirements:
+- Minimum 2 cycles to observe any state change
+- PClimit + 2 cycles minimum for fault latching
+- Each global_step() represents one execution cycle
+- All checks performed after global_step() call
+
+### Key Implementation Notes:
+- **UnitDelay Update**: rtDW.Delay1_DSTATE[0/1/2] updated AFTER global_step() with values from rtDW.Merge_e[0/1/2]
+- Selection algorithm executes every cycle based on current FC
+- Model does not implement full second failure latching (RM-004 partially supported)

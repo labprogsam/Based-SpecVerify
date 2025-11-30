@@ -1,0 +1,127 @@
+# State Variable Mapping and Requirements Analysis
+
+## 1. State Variable Mapping
+
+### Variables
+- **rtU.x**: Input signal x (type: real_T/double)
+  - Possible values: Any real number
+  - Saturated to range [-1.969179, 1.885733]
+  
+- **rtU.y**: Input signal y (type: real_T/double)  
+  - Possible values: Any real number
+  - Saturated to range [-1.999644, 1.974943]
+
+- **rtY.z**: Output signal z (type: real_T/double)
+  - Possible values: Computed from neural network
+  - Final output after scaling and bias
+
+### Internal Processing Variables
+- **tmp**: Normalized x input after mean removal and scaling
+- **tmp_0**: Normalized y input after mean removal and scaling  
+- **rtb_Sum[10]**: First hidden layer outputs (after weights, bias, activation)
+- **rtb_Merge_0[10]**: First layer activation outputs
+- **rtb_Product2_0[10]**: Second layer activation outputs
+
+### State Transitions
+- No UnitDelay blocks present - this is a purely combinational neural network
+- All computations happen within single cycle (one nn_12B_step() call)
+
+## 2. Requirements Analysis
+
+### Requirement 1: Maximum output z ≤ 1.1
+
+**Initial conditions:**
+- Any valid input values for rtU.x and rtU.y
+
+**Input triggers:**
+- All possible combinations of rtU.x and rtU.y
+
+**Expected state changes:**
+- rtY.z computed through neural network layers
+
+**Output verification:**
+- Check: rtY.z ≤ 1.1
+
+**Timing requirements:**
+- Verification at end of each nn_12B_step() call (single cycle)
+
+### Requirement 2: Minimum output z ≥ -0.2
+
+**Initial conditions:**
+- Any valid input values for rtU.x and rtU.y
+
+**Input triggers:**
+- All possible combinations of rtU.x and rtU.y
+
+**Expected state changes:**
+- rtY.z computed through neural network layers
+
+**Output verification:**
+- Check: rtY.z ≥ -0.2
+
+**Timing requirements:**
+- Verification at end of each nn_12B_step() call (single cycle)
+
+### Requirement 3: Spatial derivatives bounds -35 ≤ Δz/Δ(x,y) ≤ 10
+
+**Initial conditions:**
+- Previous values: x_prev, y_prev, z_prev from cycle n-1
+- Current values: rtU.x, rtU.y at cycle n
+
+**Input triggers:**
+- Sequence of (rtU.x, rtU.y) values over consecutive cycles
+
+**Expected state changes:**
+- Compute z_current from current inputs
+- Calculate derivatives:
+  - Δz/Δx = (z_current - z_prev)/(rtU.x - x_prev)
+  - Δz/Δy = (z_current - z_prev)/(rtU.y - y_prev)
+
+**Output verification:**
+- Check: -35 ≤ Δz/Δx ≤ 10
+- Check: -35 ≤ Δz/Δy ≤ 10
+
+**Timing requirements:**
+- Requires 2 cycles minimum (n-1 and n)
+- Verification after second nn_12B_step() call
+
+### Requirement 4: Absolute error |z - zt| ≤ 0.01
+
+**Initial conditions:**
+- Truth data values: xt, yt, zt from dataset
+
+**Input triggers:**
+- rtU.x = xt
+- rtU.y = yt
+
+**Expected state changes:**
+- rtY.z computed from neural network
+
+**Output verification:**
+- Check: |rtY.z - zt| ≤ 0.01
+
+**Timing requirements:**
+- Verification at end of each nn_12B_step() call (single cycle)
+
+## 3. Timing Considerations
+
+### Update Sequences
+1. Input saturation applied to rtU.x and rtU.y
+2. Input normalization (mean removal and scaling)
+3. First hidden layer computation (weights + bias)
+4. First activation layer (piecewise quadratic)
+5. Second hidden layer computation (weights + bias)  
+6. Second activation layer (piecewise quadratic)
+7. Output layer computation (weights)
+8. Output denormalization (scaling + bias)
+9. Final output rtY.z available
+
+### Critical Dependencies
+- No state variables or delays - pure feedforward computation
+- All operations complete within single nn_12B_step() call
+- **NO UnitDelay blocks present** - no state updates after nn_12B_step()
+
+### Cycle Requirements
+- Requirements 1, 2, 4: Single cycle verification
+- Requirement 3: Multi-cycle verification (minimum 2 cycles for derivative calculation)
+- All checks performed after nn_12B_step() completion

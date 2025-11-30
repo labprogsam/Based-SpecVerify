@@ -1,0 +1,116 @@
+# State Variable Analysis for regs_12B Model
+
+## 1. State Variable Mapping
+
+### Unit Delay States (Updated AFTER global_step())
+- **rtDW.UnitDelay_DSTATE**: Updated with value `rtb_CVdt_cmd` (height channel error signal)
+- **rtDW.UnitDelay1_DSTATE**: Updated with value `rtb_Sum1` (height channel integrator output)
+- **rtDW.UnitDelay_DSTATE_o**: Updated with value `rtb_Sum3` (pitch channel error signal)
+- **rtDW.UnitDelay1_DSTATE_k**: Updated with value `rtb_Sum1_h` (pitch channel integrator output)
+
+### Memory State (Updated AFTER global_step())
+- **rtDW.Memory_PreviousInput**: Updated with value `rtb_Sum1` (height channel integrator output)
+
+### Intermediate Variables
+- **rtb_CVdt_cmd**: Height channel error (saturated)
+- **rtb_Sum1**: Height channel integrator output (saturated to ±9999)
+- **rtb_Sum3**: Pitch channel error
+- **rtb_Sum1_h**: Pitch channel integrator output (saturated to ±9999)
+
+### Output Variables (Computed BEFORE state updates)
+- **rtY.lcvdt_cmd_fcs_dps2**: Roll acceleration command
+- **rtY.mcvdt_cmd_fcs_dps2**: Pitch acceleration command  
+- **rtY.ncvdt_cmd_fcs_dps2**: Yaw acceleration command
+- **rtY.xcvdt_cmd_fcs_fps2**: Axial acceleration command
+- **rtY.hcvdt_cmd_fcs_fps2**: Height acceleration command
+
+## 2. Requirement Analysis
+
+### Requirement 1: Roll Acceleration Static Limit
+- **Initial conditions**: System at any valid state
+- **Input triggers**: Any rtU.lcv_cmd_fcs_dps and rtU.lcv_fps_dps
+- **Expected state changes**: None (direct feedthrough)
+- **Output verification**: |rtY.lcvdt_cmd_fcs_dps2| ≤ 50 for 100 consecutive cycles
+- **Timing requirements**: Check persistence over 100 cycles
+
+### Requirement 2: Pitch Acceleration Static Limit  
+- **Initial conditions**: rtDW.UnitDelay_DSTATE_o = 0, rtDW.UnitDelay1_DSTATE_k = 0
+- **Input triggers**: Any rtU.mcv_cmd_fcs_dps, rtU.mcv_fcs_dps, rtU.vtas_adc_kts
+- **Expected state changes**: rtDW.UnitDelay_DSTATE_o and rtDW.UnitDelay1_DSTATE_k update each cycle
+- **Output verification**: |rtY.mcvdt_cmd_fcs_dps2| ≤ 50 for 100 consecutive cycles
+- **Timing requirements**: Check persistence over 100 cycles
+
+### Requirement 3: Yaw Acceleration Static Limit
+- **Initial conditions**: System at any valid state
+- **Input triggers**: Any rtU.ncv_cmd_fcs_dps, rtU.beta_adc_deg, rtU.beta_dot, rtU.ncv_fcs_dps, rtU.vtas_adc_kts
+- **Expected state changes**: None (direct feedthrough)
+- **Output verification**: |rtY.ncvdt_cmd_fcs_dps2| ≤ 50 for 100 consecutive cycles
+- **Timing requirements**: Check persistence over 100 cycles
+
+### Requirement 4: Axial Acceleration Static Limit
+- **Initial conditions**: System at any valid state
+- **Input triggers**: Any rtU.xcv_cmd_fcs_fps and rtU.dcv_fcs_fps
+- **Expected state changes**: None (direct feedthrough)
+- **Output verification**: |rtY.xcvdt_cmd_fcs_fps2| ≤ 32 for 100 consecutive cycles
+- **Timing requirements**: Check persistence over 100 cycles
+
+### Requirement 5: Height Acceleration Static Limit
+- **Initial conditions**: rtDW.UnitDelay_DSTATE = 0, rtDW.UnitDelay1_DSTATE = 0, rtDW.Memory_PreviousInput = 0
+- **Input triggers**: Any rtU.hcv_cmd_fcs_fps and rtU.zcv_fcs_fps
+- **Expected state changes**: rtDW.UnitDelay_DSTATE, rtDW.UnitDelay1_DSTATE, rtDW.Memory_PreviousInput update each cycle
+- **Output verification**: |rtY.hcvdt_cmd_fcs_fps2| ≤ 32 for 100 consecutive cycles
+- **Timing requirements**: Check persistence over 100 cycles
+
+### Requirement 6: Roll Acceleration Rate Limit
+- **Initial conditions**: Previous rtY.lcvdt_cmd_fcs_dps2 value stored
+- **Input triggers**: Any change in rtU.lcv_cmd_fcs_dps or rtU.lcv_fps_dps
+- **Expected state changes**: None (direct feedthrough)
+- **Output verification**: |rtY.lcvdt_cmd_fcs_dps2[n] - rtY.lcvdt_cmd_fcs_dps2[n-1]| ≤ 50
+- **Timing requirements**: Check between consecutive cycles
+
+### Requirement 7: Pitch Acceleration Rate Limit
+- **Initial conditions**: Previous rtY.mcvdt_cmd_fcs_dps2 value stored
+- **Input triggers**: Any change in rtU.mcv_cmd_fcs_dps, rtU.mcv_fcs_dps, or rtU.vtas_adc_kts
+- **Expected state changes**: rtDW.UnitDelay_DSTATE_o and rtDW.UnitDelay1_DSTATE_k update
+- **Output verification**: |rtY.mcvdt_cmd_fcs_dps2[n] - rtY.mcvdt_cmd_fcs_dps2[n-1]| ≤ 50
+- **Timing requirements**: Check between consecutive cycles
+
+### Requirement 8: Yaw Acceleration Rate Limit
+- **Initial conditions**: Previous rtY.ncvdt_cmd_fcs_dps2 value stored
+- **Input triggers**: Any change in rtU.ncv_cmd_fcs_dps, rtU.beta_adc_deg, rtU.beta_dot, rtU.ncv_fcs_dps, or rtU.vtas_adc_kts
+- **Expected state changes**: None (direct feedthrough)
+- **Output verification**: |rtY.ncvdt_cmd_fcs_dps2[n] - rtY.ncvdt_cmd_fcs_dps2[n-1]| ≤ 50
+- **Timing requirements**: Check between consecutive cycles
+
+### Requirement 9: Axial Acceleration Rate Limit
+- **Initial conditions**: Previous rtY.xcvdt_cmd_fcs_fps2 value stored
+- **Input triggers**: Any change in rtU.xcv_cmd_fcs_fps or rtU.dcv_fcs_fps
+- **Expected state changes**: None (direct feedthrough)
+- **Output verification**: |rtY.xcvdt_cmd_fcs_fps2[n] - rtY.xcvdt_cmd_fcs_fps2[n-1]| ≤ 32
+- **Timing requirements**: Check between consecutive cycles
+
+### Requirement 10: Height Acceleration Rate Limit
+- **Initial conditions**: Previous rtY.hcvdt_cmd_fcs_fps2 value stored
+- **Input triggers**: Any change in rtU.hcv_cmd_fcs_fps or rtU.zcv_fcs_fps
+- **Expected state changes**: rtDW.UnitDelay_DSTATE, rtDW.UnitDelay1_DSTATE, rtDW.Memory_PreviousInput update
+- **Output verification**: |rtY.hcvdt_cmd_fcs_fps2[n] - rtY.hcvdt_cmd_fcs_fps2[n-1]| ≤ 32
+- **Timing requirements**: Check between consecutive cycles
+
+## 3. Timing Considerations
+
+### Update Sequences (per cycle):
+1. Compute all outputs based on current inputs and states
+2. Update Memory state with rtb_Sum1
+3. Update UnitDelay states with current cycle values
+4. All state updates occur AFTER global_step() call
+
+### Critical Dependencies:
+- Height channel: Integrator depends on UnitDelay_DSTATE and UnitDelay1_DSTATE
+- Pitch channel: Integrator depends on UnitDelay_DSTATE_o and UnitDelay1_DSTATE_k
+- Memory feedback only affects height channel with 0.0 gain (effectively disabled)
+
+### Cycle Requirements:
+- Static limit checks: Must track violations over 100 consecutive cycles
+- Rate limit checks: Compare output values between consecutive cycles
+- State propagation: One cycle delay for all UnitDelay blocks
+- Integration time constant: 0.01 seconds (100 Hz assumed)

@@ -19,6 +19,7 @@ import sys
 import json
 import argparse
 import shutil
+import re
 from pathlib import Path
 
 # Adiciona o diretório atual ao path para importar módulos
@@ -33,6 +34,84 @@ def extract_violated_properties(verification_result_file: str) -> list:
     from run_verification import PropertyVerifier
     verifier = PropertyVerifier()
     return verifier.extract_violated_properties(verification_result_file)
+
+def extract_parse_errors(verification_result_file: str) -> list:
+    """Extrai informações sobre erros de parsing do arquivo de resultado"""
+    parse_errors = []
+    
+    if not os.path.exists(verification_result_file):
+        return parse_errors
+    
+    try:
+        with open(verification_result_file, 'r', encoding='utf-8') as f:
+            content = f.read()
+    except Exception as e:
+        print(f"Erro ao ler arquivo de resultado: {e}")
+        return parse_errors
+    
+    # Procura por erros de parsing no formato:
+    # arquivo:linha:coluna: error: mensagem
+    # ou
+    # ERROR: PARSING ERROR
+    # seguido de detalhes do erro
+    
+    # Padrão para erros de parsing do ESBMC
+    parse_pattern = r'([^:\n]+):(\d+):(\d+):\s*error:\s*([^\n]+)'
+    matches = re.finditer(parse_pattern, content)
+    
+    for match in matches:
+        file_path = match.group(1).strip()
+        line = match.group(2).strip()
+        column = match.group(3).strip()
+        error_message = match.group(4).strip()
+        
+        # Extrai contexto adicional (próximas linhas após o erro)
+        start_pos = match.end()
+        context_lines = []
+        lines = content[start_pos:start_pos + 500].split('\n')
+        for i, line in enumerate(lines[:5]):  # Pega até 5 linhas de contexto
+            if line.strip():
+                context_lines.append(line.strip())
+            if i >= 2:  # Limita contexto
+                break
+        
+        context = '\n'.join(context_lines) if context_lines else ''
+        
+        parse_errors.append({
+            'file': file_path,
+            'line': line,
+            'column': column,
+            'function': 'parsing',
+            'message': f"{error_message}\n{context}".strip(),
+            'full_text': match.group(0).strip()
+        })
+    
+    # Se não encontrou erros específicos mas há "ERROR: PARSING ERROR"
+    if not parse_errors and ("ERROR: PARSING ERROR" in content or "PARSING ERROR" in content):
+        # Tenta extrair informações gerais sobre o erro
+        error_section = content
+        if "ERROR: PARSING ERROR" in content:
+            error_start = content.find("ERROR: PARSING ERROR")
+            error_section = content[error_start:error_start + 1000]
+        
+        # Procura por linhas com "error:" ou "fatal error:"
+        general_pattern = r'(error:|fatal error:)\s*([^\n]+)'
+        general_matches = re.finditer(general_pattern, error_section, re.IGNORECASE)
+        
+        for match in general_matches:
+            error_type = match.group(1).strip()
+            error_msg = match.group(2).strip()
+            
+            parse_errors.append({
+                'file': 'unknown',
+                'line': 'unknown',
+                'column': 'unknown',
+                'function': 'parsing',
+                'message': f"{error_type} {error_msg}",
+                'full_text': match.group(0).strip()
+            })
+    
+    return parse_errors
 
 def run_iterative_verification(task: str, phase1: str, phase2: str, 
                                 max_iterations: int = 3, property_num: int = None,
@@ -293,18 +372,47 @@ def run_iterative_verification(task: str, phase1: str, phase2: str,
                 'result_file': result_file
             }
             
+            # Trata diferentes tipos de falhas
             if status == "FAILED":
                 all_passed = False
-                # Extrai erros
+                # Extrai erros de propriedades violadas
                 errors = extract_violated_properties(result_file)
                 current_iteration_errors.extend(errors)
                 print(f"    ✗ Property {prop_num} FALHOU - {len(errors)} erro(s) encontrado(s)")
                 for i, error in enumerate(errors, 1):
                     print(f"      Erro {i}: {error.get('message', 'N/A')[:80]}...")
+            elif status.startswith("PARSE_ERROR") or status == "ERROR":
+                # Erros de parsing/compilação também são falhas que precisam ser corrigidas
+                all_passed = False
+                # Extrai erros de parsing
+                errors = extract_parse_errors(result_file)
+                if not errors:
+                    # Se não conseguiu extrair erros específicos, cria um erro genérico
+                    errors = [{
+                        'file': 'unknown',
+                        'line': 'unknown',
+                        'column': 'unknown',
+                        'function': 'parsing',
+                        'message': f'Erro de parsing/compilação: {status}. Verifique o arquivo de resultado para detalhes.',
+                        'full_text': f'Status: {status}'
+                    }]
+                current_iteration_errors.extend(errors)
+                print(f"    ✗ Property {prop_num} ERRO DE PARSING - {len(errors)} erro(s) encontrado(s)")
+                for i, error in enumerate(errors, 1):
+                    error_msg = error.get('message', 'N/A')
+                    if len(error_msg) > 100:
+                        error_msg = error_msg[:100] + "..."
+                    print(f"      Erro {i}: {error_msg}")
             elif status == "SUCCESSFUL":
                 print(f"    ✓ Property {prop_num} PASSOU")
             else:
+                # Outros status (TIMEOUT, UNKNOWN, etc.) também são tratados como não-sucesso
+                # mas não necessariamente precisam de correção automática
                 print(f"    ? Property {prop_num} {status}")
+                # TIMEOUT e outros erros não são tratados como "passou", mas também não forçam nova iteração
+                # a menos que seja um erro crítico
+                if status not in ["TIMEOUT", "UNKNOWN"]:
+                    all_passed = False
         
         iteration_results.append(iteration_result)
         

@@ -1,45 +1,45 @@
-Verification Summary - 2025-11-27 00:33:49.100310
+Verification Summary - 2025-11-30 21:12:05.159818
 Directory: .\3_regulators\LLM_code\Claude_code
 Source file: ert_main.c
 ==================================================
 
 Property 1
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_MISSING_HEADER
 
 Property 2
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_MISSING_HEADER
 
 Property 3
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_MISSING_HEADER
 
 Property 4
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_MISSING_HEADER
 
 Property 5
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_MISSING_HEADER
 
 Property 6
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_MISSING_HEADER
 
 Property 7
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_MISSING_HEADER
 
 Property 8
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_MISSING_HEADER
 
 Property 9
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_MISSING_HEADER
 
 Property 10
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_MISSING_HEADER
 

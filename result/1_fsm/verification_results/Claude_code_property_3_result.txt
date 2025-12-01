@@ -4,20 +4,20 @@ Parsing ert_main.c
 Parsing fsm_12B_global.c
 Converting
 Generating GOTO Program
-GOTO program creation time: 0.326s
-GOTO program processing time: 0.002s
+GOTO program creation time: 0.311s
+GOTO program processing time: 0.001s
 Checking base case, k = 1
 Starting Bounded Model Checking
 Not unwinding loop 3 iteration 1   file ert_main.c line 22 column 5 function main
-Symex completed in: 0.004s (168 assignments)
+Symex completed in: 0.005s (168 assignments)
 Slicing time: 0.000s (removed 45 assignments)
 Generated 5 VCC(s), 3 remaining after simplification (123 assignments)
 No solver specified; defaulting to z3
 Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
-Encoding to solver time: 0.002s
+Encoding to solver time: 0.001s
 Solving with solver Z3 v4.13.3
-Runtime decision procedure: 0.068s
-BMC program time: 0.077s
+Runtime decision procedure: 0.073s
+BMC program time: 0.082s
 No bug has been found in the base case
 Checking forward condition, k = 1
 Starting Bounded Model Checking
@@ -29,20 +29,20 @@ No solver specified; defaulting to z3
 Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
 Encoding to solver time: 0.000s
 Solving with solver Z3 v4.13.3
-Runtime decision procedure: 0.000s
+Runtime decision procedure: 0.001s
 The forward condition is unable to prove the property
 Checking base case, k = 2
 Starting Bounded Model Checking
 Unwinding loop 3 iteration 1   file ert_main.c line 22 column 5 function main
 Not unwinding loop 3 iteration 2   file ert_main.c line 22 column 5 function main
 Symex completed in: 0.010s (297 assignments)
-Slicing time: 0.001s (removed 51 assignments)
+Slicing time: 0.000s (removed 51 assignments)
 Generated 11 VCC(s), 7 remaining after simplification (246 assignments)
 No solver specified; defaulting to z3
 Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
-Encoding to solver time: 0.002s
+Encoding to solver time: 0.003s
 Solving with solver Z3 v4.13.3
-Runtime decision procedure: 0.278s
+Runtime decision procedure: 0.263s
 Building error trace
 
 [Counterexample]

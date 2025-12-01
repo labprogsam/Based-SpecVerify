@@ -4,45 +4,45 @@ Parsing ert_main.c
 Parsing fsm_12B_global.c
 Converting
 Generating GOTO Program
-GOTO program creation time: 0.408s
+GOTO program creation time: 0.307s
 GOTO program processing time: 0.001s
 Checking base case, k = 1
 Starting Bounded Model Checking
 Not unwinding loop 3 iteration 1   file ert_main.c line 22 column 5 function main
-Symex completed in: 0.007s (168 assignments)
+Symex completed in: 0.005s (168 assignments)
 Slicing time: 0.000s (removed 45 assignments)
 Generated 5 VCC(s), 3 remaining after simplification (123 assignments)
 No solver specified; defaulting to z3
 Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
-Encoding to solver time: 0.002s
+Encoding to solver time: 0.001s
 Solving with solver Z3 v4.13.3
-Runtime decision procedure: 0.092s
-BMC program time: 0.104s
+Runtime decision procedure: 0.070s
+BMC program time: 0.079s
 No bug has been found in the base case
 Checking forward condition, k = 1
 Starting Bounded Model Checking
 Not unwinding loop 3 iteration 1   file ert_main.c line 22 column 5 function main
-Symex completed in: 0.011s (165 assignments)
+Symex completed in: 0.004s (165 assignments)
 Slicing time: 0.000s (removed 161 assignments)
 Generated 3 VCC(s), 1 remaining after simplification (4 assignments)
 No solver specified; defaulting to z3
 Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
 Encoding to solver time: 0.000s
 Solving with solver Z3 v4.13.3
-Runtime decision procedure: 0.001s
+Runtime decision procedure: 0.000s
 The forward condition is unable to prove the property
 Checking base case, k = 2
 Starting Bounded Model Checking
 Unwinding loop 3 iteration 1   file ert_main.c line 22 column 5 function main
 Not unwinding loop 3 iteration 2   file ert_main.c line 22 column 5 function main
-Symex completed in: 0.013s (297 assignments)
+Symex completed in: 0.010s (297 assignments)
 Slicing time: 0.001s (removed 52 assignments)
 Generated 11 VCC(s), 7 remaining after simplification (245 assignments)
 No solver specified; defaulting to z3
 Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
 Encoding to solver time: 0.002s
 Solving with solver Z3 v4.13.3
-Runtime decision procedure: 0.396s
+Runtime decision procedure: 0.310s
 Building error trace
 
 [Counterexample]

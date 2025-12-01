@@ -4,8 +4,8 @@ Parsing ert_main.c
 Parsing integrator_12B.c
 Converting
 Generating GOTO Program
-GOTO program creation time: 0.557s
-GOTO program processing time: 0.009s
+GOTO program creation time: 0.396s
+GOTO program processing time: 0.007s
 Checking base case, k = 1
 Starting Bounded Model Checking
 Not unwinding loop 4 iteration 1   file ert_main.c line 71 column 5 function main
@@ -16,7 +16,7 @@ No solver specified; defaulting to z3
 Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
 Encoding to solver time: 0.000s
 Solving with solver Z3 v4.13.3
-Runtime decision procedure: 3.768s
+Runtime decision procedure: 2.373s
 Building error trace
 
 [Counterexample]

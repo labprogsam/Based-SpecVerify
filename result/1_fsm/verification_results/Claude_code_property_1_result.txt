@@ -4,19 +4,19 @@ Parsing ert_main.c
 Parsing fsm_12B_global.c
 Converting
 Generating GOTO Program
-GOTO program creation time: 0.467s
-GOTO program processing time: 0.002s
+GOTO program creation time: 0.304s
+GOTO program processing time: 0.001s
 Checking base case, k = 1
 Starting Bounded Model Checking
 Not unwinding loop 3 iteration 1   file ert_main.c line 22 column 5 function main
-Symex completed in: 0.010s (170 assignments)
+Symex completed in: 0.006s (170 assignments)
 Slicing time: 0.000s (removed 42 assignments)
 Generated 6 VCC(s), 4 remaining after simplification (128 assignments)
 No solver specified; defaulting to z3
 Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
-Encoding to solver time: 0.003s
+Encoding to solver time: 0.002s
 Solving with solver Z3 v4.13.3
-Runtime decision procedure: 0.089s
+Runtime decision procedure: 0.049s
 Building error trace
 
 [Counterexample]

@@ -198,7 +198,7 @@ class PropertyVerifier:
             result = subprocess.run(cmd, 
                                   capture_output=True, 
                                   text=True,
-                                  timeout=600)
+                                  timeout=450)
             output = result.stdout + result.stderr
             
             # Detecta diferentes tipos de resultados

@@ -4,19 +4,19 @@ Parsing ert_main.c
 Parsing triplex_12B.c
 Converting
 Generating GOTO Program
-GOTO program creation time: 0.414s
-GOTO program processing time: 0.007s
+GOTO program creation time: 0.573s
+GOTO program processing time: 0.010s
 Checking base case, k = 1
 Starting Bounded Model Checking
 Not unwinding loop 4 iteration 1   file ert_main.c line 33 column 3 function main
-Symex completed in: 0.004s (217 assignments)
+Symex completed in: 0.007s (217 assignments)
 Slicing time: 0.000s (removed 133 assignments)
 Generated 1 VCC(s), 1 remaining after simplification (84 assignments)
 No solver specified; defaulting to z3
 Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
 Encoding to solver time: 0.002s
 Solving with solver Z3 v4.13.3
-Runtime decision procedure: 295.563s
+Runtime decision procedure: 283.164s
 Building error trace
 
 [Counterexample]

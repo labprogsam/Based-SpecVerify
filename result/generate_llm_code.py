@@ -99,7 +99,7 @@ class LLMGenerator:
                 "prompt": prompt,
                 "stream": False
             },
-            timeout=600
+            timeout=450
         )
         response.raise_for_status()
         return response.json()["response"]

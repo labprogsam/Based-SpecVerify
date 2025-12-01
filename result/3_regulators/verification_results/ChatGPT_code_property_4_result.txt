@@ -5,36 +5,36 @@ Parsing regs_12B.c
 Parsing regs_12B_data.c
 Converting
 Generating GOTO Program
-GOTO program creation time: 0.535s
-GOTO program processing time: 0.010s
+GOTO program creation time: 0.448s
+GOTO program processing time: 0.006s
 Checking base case, k = 1
 Starting Bounded Model Checking
 Not unwinding loop 6 iteration 1   file regs_12B.c line 140 column 7 function rt_GetLookupIndex
 Not unwinding loop 6 iteration 1   file regs_12B.c line 140 column 7 function rt_GetLookupIndex
 Not unwinding loop 4 iteration 1   file ert_main.c line 91 column 3 function main
-Symex completed in: 0.179s (261 assignments)
+Symex completed in: 0.122s (261 assignments)
 Slicing time: 0.002s (removed 179 assignments)
 Generated 143 VCC(s), 43 remaining after simplification (82 assignments)
 No solver specified; defaulting to z3
 Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
-Encoding to solver time: 0.011s
+Encoding to solver time: 0.006s
 Solving with solver Z3 v4.13.3
-Runtime decision procedure: 0.003s
-BMC program time: 0.200s
+Runtime decision procedure: 0.002s
+BMC program time: 0.135s
 No bug has been found in the base case
 Checking forward condition, k = 1
 Starting Bounded Model Checking
 Not unwinding loop 6 iteration 1   file regs_12B.c line 140 column 7 function rt_GetLookupIndex
 Not unwinding loop 6 iteration 1   file regs_12B.c line 140 column 7 function rt_GetLookupIndex
 Not unwinding loop 4 iteration 1   file ert_main.c line 91 column 3 function main
-Symex completed in: 0.182s (260 assignments)
-Slicing time: 0.001s (removed 193 assignments)
+Symex completed in: 0.115s (260 assignments)
+Slicing time: 0.000s (removed 193 assignments)
 Generated 145 VCC(s), 45 remaining after simplification (67 assignments)
 No solver specified; defaulting to z3
 Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
 Encoding to solver time: 0.001s
 Solving with solver Z3 v4.13.3
-Runtime decision procedure: 0.002s
+Runtime decision procedure: 0.001s
 The forward condition is unable to prove the property
 Checking base case, k = 2
 Starting Bounded Model Checking
@@ -48,15 +48,15 @@ Not unwinding loop 6 iteration 2   file regs_12B.c line 140 column 7 function rt
 Unwinding loop 6 iteration 1   file regs_12B.c line 140 column 7 function rt_GetLookupIndex
 Not unwinding loop 6 iteration 2   file regs_12B.c line 140 column 7 function rt_GetLookupIndex
 Not unwinding loop 4 iteration 2   file ert_main.c line 91 column 3 function main
-Symex completed in: 0.727s (646 assignments)
-Slicing time: 0.006s (removed 306 assignments)
+Symex completed in: 0.490s (646 assignments)
+Slicing time: 0.005s (removed 306 assignments)
 Generated 342 VCC(s), 226 remaining after simplification (340 assignments)
 No solver specified; defaulting to z3
 Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
-Encoding to solver time: 0.070s
+Encoding to solver time: 0.038s
 Solving with solver Z3 v4.13.3
-Runtime decision procedure: 0.030s
-BMC program time: 0.837s
+Runtime decision procedure: 0.012s
+BMC program time: 0.548s
 No bug has been found in the base case
 Checking forward condition, k = 2
 Starting Bounded Model Checking
@@ -70,14 +70,14 @@ Not unwinding loop 6 iteration 2   file regs_12B.c line 140 column 7 function rt
 Unwinding loop 6 iteration 1   file regs_12B.c line 140 column 7 function rt_GetLookupIndex
 Not unwinding loop 6 iteration 2   file regs_12B.c line 140 column 7 function rt_GetLookupIndex
 Not unwinding loop 4 iteration 2   file ert_main.c line 91 column 3 function main
-Symex completed in: 0.819s (644 assignments)
-Slicing time: 0.004s (removed 336 assignments)
+Symex completed in: 0.491s (644 assignments)
+Slicing time: 0.003s (removed 336 assignments)
 Generated 345 VCC(s), 229 remaining after simplification (308 assignments)
 No solver specified; defaulting to z3
 Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
-Encoding to solver time: 0.019s
+Encoding to solver time: 0.015s
 Solving with solver Z3 v4.13.3
-Runtime decision procedure: 0.011s
+Runtime decision procedure: 0.007s
 The forward condition is unable to prove the property
 Checking inductive step, k = 2
 Starting Bounded Model Checking
@@ -91,15 +91,15 @@ Not unwinding loop 6 iteration 2   file regs_12B.c line 140 column 7 function rt
 Unwinding loop 6 iteration 1   file regs_12B.c line 140 column 7 function rt_GetLookupIndex
 Not unwinding loop 6 iteration 2   file regs_12B.c line 140 column 7 function rt_GetLookupIndex
 Not unwinding loop 4 iteration 2   file ert_main.c line 91 column 3 function main
-Symex completed in: 0.914s (925 assignments)
-Slicing time: 0.013s (removed 300 assignments)
+Symex completed in: 0.613s (925 assignments)
+Slicing time: 0.007s (removed 300 assignments)
 Generated 344 VCC(s), 282 remaining after simplification (625 assignments)
 No solver specified; defaulting to z3
 Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
-Encoding to solver time: 0.067s
+Encoding to solver time: 0.045s
 Solving with solver Z3 v4.13.3
-Runtime decision procedure: 0.026s
-BMC program time: 1.024s
+Runtime decision procedure: 0.017s
+BMC program time: 0.684s
 
 VERIFICATION SUCCESSFUL
 

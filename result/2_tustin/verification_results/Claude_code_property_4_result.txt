@@ -4,43 +4,21 @@ Parsing ert_main.c
 Parsing integrator_12B.c
 Converting
 Generating GOTO Program
-GOTO program creation time: 0.551s
-GOTO program processing time: 0.012s
+GOTO program creation time: 0.371s
+GOTO program processing time: 0.006s
 Checking base case, k = 1
 Starting Bounded Model Checking
 Not unwinding loop 4 iteration 1   file ert_main.c line 71 column 5 function main
 Symex completed in: 0.002s (112 assignments)
-Slicing time: 0.001s (removed 110 assignments)
+Slicing time: 0.000s (removed 110 assignments)
 Generated 0 VCC(s), 0 remaining after simplification (2 assignments)
-BMC program time: 0.003s
+BMC program time: 0.002s
 No bug has been found in the base case
 Checking forward condition, k = 1
 Starting Bounded Model Checking
 Not unwinding loop 4 iteration 1   file ert_main.c line 71 column 5 function main
-Symex completed in: 0.001s (112 assignments)
+Symex completed in: 0.002s (112 assignments)
 Slicing time: 0.000s (removed 110 assignments)
-Generated 1 VCC(s), 1 remaining after simplification (2 assignments)
-No solver specified; defaulting to z3
-Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
-Encoding to solver time: 0.000s
-Solving with solver Z3 v4.13.3
-Runtime decision procedure: 0.001s
-The forward condition is unable to prove the property
-Checking base case, k = 2
-Starting Bounded Model Checking
-Unwinding loop 4 iteration 1   file ert_main.c line 71 column 5 function main
-Not unwinding loop 4 iteration 2   file ert_main.c line 71 column 5 function main
-Symex completed in: 0.003s (147 assignments)
-Slicing time: 0.000s (removed 145 assignments)
-Generated 0 VCC(s), 0 remaining after simplification (2 assignments)
-BMC program time: 0.003s
-No bug has been found in the base case
-Checking forward condition, k = 2
-Starting Bounded Model Checking
-Unwinding loop 4 iteration 1   file ert_main.c line 71 column 5 function main
-Not unwinding loop 4 iteration 2   file ert_main.c line 71 column 5 function main
-Symex completed in: 0.003s (147 assignments)
-Slicing time: 0.000s (removed 145 assignments)
 Generated 1 VCC(s), 1 remaining after simplification (2 assignments)
 No solver specified; defaulting to z3
 Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
@@ -48,12 +26,34 @@ Encoding to solver time: 0.000s
 Solving with solver Z3 v4.13.3
 Runtime decision procedure: 0.000s
 The forward condition is unable to prove the property
+Checking base case, k = 2
+Starting Bounded Model Checking
+Unwinding loop 4 iteration 1   file ert_main.c line 71 column 5 function main
+Not unwinding loop 4 iteration 2   file ert_main.c line 71 column 5 function main
+Symex completed in: 0.002s (147 assignments)
+Slicing time: 0.000s (removed 145 assignments)
+Generated 0 VCC(s), 0 remaining after simplification (2 assignments)
+BMC program time: 0.002s
+No bug has been found in the base case
+Checking forward condition, k = 2
+Starting Bounded Model Checking
+Unwinding loop 4 iteration 1   file ert_main.c line 71 column 5 function main
+Not unwinding loop 4 iteration 2   file ert_main.c line 71 column 5 function main
+Symex completed in: 0.002s (147 assignments)
+Slicing time: 0.000s (removed 145 assignments)
+Generated 1 VCC(s), 1 remaining after simplification (2 assignments)
+No solver specified; defaulting to z3
+Encoding remaining VCC(s) using bit-vector/floating-point arithmetic
+Encoding to solver time: 0.000s
+Solving with solver Z3 v4.13.3
+Runtime decision procedure: 0.001s
+The forward condition is unable to prove the property
 Checking inductive step, k = 2
 Starting Bounded Model Checking
 Unwinding loop 4 iteration 1   file ert_main.c line 71 column 5 function main
 Not unwinding loop 4 iteration 2   file ert_main.c line 71 column 5 function main
-Symex completed in: 0.003s (170 assignments)
-Slicing time: 0.001s (removed 167 assignments)
+Symex completed in: 0.004s (170 assignments)
+Slicing time: 0.000s (removed 167 assignments)
 Generated 0 VCC(s), 0 remaining after simplification (3 assignments)
 BMC program time: 0.004s
 

@@ -2,20 +2,120 @@
 import re
 import subprocess
 import os
+import sys
 import csv
+import argparse
 from datetime import datetime
 from collections import defaultdict
 
 class PropertyVerifier:
     def __init__(self):
+        # Get project root directory (assuming script is in result/)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)
+        include_dir = os.path.join(project_root, "include")
+        
         self.include_paths = [
             "./",
+            include_dir,  # Add project include directory for standard headers
             "/usr/local/MATLAB/R2024b/simulink/include",
             "/usr/local/MATLAB/R2024b/rtw/c/src",
             "/usr/local/MATLAB/R2024b/extern/include",
             "/usr/local/MATLAB/R2024b/simulink/include/sf_runtime"
         ]
         self.results_summary = defaultdict(dict)
+    
+    def extract_violated_properties(self, verification_result_file: str) -> list:
+        """Extrai informações sobre propriedades violadas do arquivo de resultado
+        
+        Args:
+            verification_result_file: Caminho para o arquivo de resultado da verificação
+            
+        Returns:
+            Lista de dicionários contendo informações sobre cada propriedade violada
+        """
+        violated_properties = []
+        
+        if not os.path.exists(verification_result_file):
+            return violated_properties
+        
+        try:
+            with open(verification_result_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except Exception as e:
+            print(f"Erro ao ler arquivo de resultado: {e}")
+            return violated_properties
+        
+        # Procura pela seção "Violated property:"
+        # Padrão: Violated property: seguido de informações sobre o erro
+        # Formato esperado:
+        # Violated property:
+        #   file <arquivo> line <linha> column <coluna> function <função>
+        #   <mensagem do erro>
+        #   <detalhes adicionais>
+        pattern = r'Violated property:\s*\n\s*file\s+([^\n]+)\s+line\s+(\d+)\s+column\s+(\d+)\s+function\s+([^\n]+)\s*\n\s*((?:[^\n]+(?:\n|$))*(?=\n\n|\nVERIFICATION|$))'
+        
+        matches = re.finditer(pattern, content, re.MULTILINE)
+        
+        for match in matches:
+            file_path = match.group(1).strip()
+            line = match.group(2).strip()
+            column = match.group(3).strip()
+            function = match.group(4).strip()
+            error_message = match.group(5).strip()
+            
+            violated_properties.append({
+                'file': file_path,
+                'line': line,
+                'column': column,
+                'function': function,
+                'message': error_message,
+                'full_text': match.group(0).strip()
+            })
+        
+        return violated_properties
+        
+    def find_esbmc_include_paths(self):
+        """Find ESBMC standard include paths, especially for Windows"""
+        include_paths = []
+        
+        if sys.platform == "win32":
+            # Try to find ESBMC installation directory
+            try:
+                # Check common installation locations
+                possible_paths = [
+                    os.path.join(os.environ.get("ProgramFiles", ""), "esbmc", "include"),
+                    os.path.join(os.environ.get("ProgramFiles(x86)", ""), "esbmc", "include"),
+                    os.path.join(os.environ.get("LOCALAPPDATA", ""), "esbmc", "include"),
+                    os.path.join(os.environ.get("APPDATA", ""), "esbmc", "include"),
+                ]
+                
+                # Also try to find from PATH
+                import shutil
+                esbmc_path = shutil.which("esbmc")
+                if esbmc_path:
+                    esbmc_dir = os.path.dirname(esbmc_path)
+                    possible_paths.extend([
+                        os.path.join(esbmc_dir, "include"),
+                        os.path.join(os.path.dirname(esbmc_dir), "include"),
+                        os.path.join(os.path.dirname(esbmc_dir), "esbmclibc", "include"),
+                    ])
+                
+                for path in possible_paths:
+                    if path and os.path.exists(path):
+                        include_paths.append(path)
+                        break
+            except Exception:
+                pass
+            
+            # If no specific path found, ESBMC should use esbmclibc automatically
+            # But we can try adding common system include paths as fallback
+            if not include_paths:
+                # Try to use --idirafter with common Windows paths
+                # ESBMC on Windows should handle standard headers via esbmclibc
+                pass
+        
+        return include_paths
         
     def extract_properties(self, file_path):
         """Extract all VERIFY_PROPERTY definitions from file"""
@@ -44,25 +144,80 @@ class PropertyVerifier:
             # Construct include paths arguments
             include_args = []
             for path in self.include_paths:
-                include_args.extend(["-I", path])
+                # Skip Unix-specific paths on Windows
+                if sys.platform == "win32" and path.startswith("/usr/"):
+                    continue
+                # Add path if it exists or is a relative path (like "./")
+                if os.path.exists(path) or not path.startswith("/"):
+                    include_args.extend(["-I", path])
+                # On Windows, also try to add include directory even if path doesn't start with /
+                elif sys.platform == "win32" and not path.startswith("/"):
+                    include_args.extend(["-I", path])
             
+            # Add ESBMC standard include paths for Windows
+            if sys.platform == "win32":
+                esbmc_includes = self.find_esbmc_include_paths()
+                for path in esbmc_includes:
+                    include_args.extend(["-I", path])
+            
+            # Build ESBMC command
             cmd = ["esbmc"] + c_files + include_args + [
                 "--k-induction",
-                "--memlimit", "8g",
-                "--timeout", "300",
                 f"-DVERIFY_PROPERTY_{property_num}"
             ]
+            
+            # On Windows, ESBMC uses esbmclibc for standard headers
+            # If headers are not found, try to locate esbmclibc installation
+            if sys.platform == "win32":
+                # Try to find esbmclibc include directory
+                try:
+                    import shutil
+                    esbmc_path = shutil.which("esbmc")
+                    if esbmc_path:
+                        esbmc_dir = os.path.dirname(esbmc_path)
+                        # Common locations for esbmclibc headers
+                        possible_libc_paths = [
+                            os.path.join(esbmc_dir, "..", "esbmclibc", "include"),
+                            os.path.join(esbmc_dir, "..", "include"),
+                            os.path.join(os.path.dirname(esbmc_dir), "esbmclibc", "include"),
+                            os.path.join(os.path.dirname(esbmc_dir), "include"),
+                        ]
+                        for libc_path in possible_libc_paths:
+                            libc_path = os.path.normpath(libc_path)
+                            if os.path.exists(libc_path) and os.path.exists(os.path.join(libc_path, "stdio.h")):
+                                cmd.extend(["--idirafter", libc_path])
+                                break
+                except Exception:
+                    pass
+            
+            # Add timeout and memlimit options only on non-Windows systems
+            # (ESBMC timeout and memlimit are not implemented on Windows)
+            if sys.platform != "win32":
+                cmd.extend(["--timeout", "300", "--memlimit", "8g"])
 
             result = subprocess.run(cmd, 
                                   capture_output=True, 
                                   text=True,
-                                  timeout=300)
+                                  timeout=450)
             output = result.stdout + result.stderr
             
+            # Detecta diferentes tipos de resultados
             if "VERIFICATION SUCCESSFUL" in output:
                 status = "SUCCESSFUL"
             elif "VERIFICATION FAILED" in output:
                 status = "FAILED"
+            elif "ERROR: PARSING ERROR" in output or "fatal error:" in output or "error:" in output:
+                # Detecta erros de parsing/compilação
+                if "file not found" in output.lower():
+                    status = "PARSE_ERROR_MISSING_HEADER"
+                elif "unknown type name" in output.lower() or "expected" in output.lower():
+                    status = "PARSE_ERROR_SYNTAX"
+                else:
+                    status = "PARSE_ERROR"
+            elif "Verification timed out" in output or "TIMEOUT" in output:
+                status = "TIMEOUT"
+            elif result.returncode != 0:
+                status = "ERROR"
             else:
                 status = "UNKNOWN"
         except subprocess.TimeoutExpired:
@@ -74,8 +229,15 @@ class PropertyVerifier:
             
         return status, output
 
-    def process_directory(self, directory, results_dir, task_name):
-        """Process verification for a specific directory"""
+    def process_directory(self, directory, results_dir, task_name, property_filter=None):
+        """Process verification for a specific directory
+        
+        Args:
+            directory: Diretório com código de verificação
+            results_dir: Diretório para salvar resultados
+            task_name: Nome da tarefa
+            property_filter: Se fornecido, verifica apenas esta propriedade (ex: 1, 2, 3)
+        """
         print(f"\nProcessing directory: {directory}")
         
         properties_found = False
@@ -87,6 +249,13 @@ class PropertyVerifier:
             properties = self.extract_properties(file_path)
             
             if properties:
+                # Aplica filtro de propriedade se fornecido
+                if property_filter is not None:
+                    if property_filter not in properties:
+                        print(f"Property {property_filter} not found in {source_file}. Available: {properties}")
+                        return False
+                    properties = [property_filter]
+                
                 properties_found = True
                 print(f"Found properties in {source_file}: {properties}")
                 
@@ -122,8 +291,15 @@ class PropertyVerifier:
         
         return properties_found
 
-def process_llm_directory(verifier, llm_dir):
-    """Process all subdirectories in an LLM directory"""
+def process_llm_directory(verifier, llm_dir, property_filter=None, attempt_filter=None):
+    """Process all subdirectories in an LLM directory
+    
+    Args:
+        verifier: Instância de PropertyVerifier
+        llm_dir: Diretório LLM_code
+        property_filter: Se fornecido, verifica apenas esta propriedade
+        attempt_filter: Lista de nomes de subdiretórios para filtrar (ex: ['ChatGPT_Claude', 'Claude_ChatGPT'])
+    """
     directories_processed = 0
     
     # Get task name from parent directory
@@ -139,20 +315,64 @@ def process_llm_directory(verifier, llm_dir):
     for item in os.listdir(llm_dir):
         subdir_path = os.path.join(llm_dir, item)
         if os.path.isdir(subdir_path):
+            # Aplica filtro de subdiretório se fornecido
+            if attempt_filter is not None:
+                if item not in attempt_filter:
+                    print(f"Skipping subdirectory: {item} (not in filter)")
+                    continue
+            
             print(f"Checking subdirectory: {subdir_path}")
-            if verifier.process_directory(subdir_path, results_dir, task_name):
+            if verifier.process_directory(subdir_path, results_dir, task_name, property_filter):
                 directories_processed += 1
     
     return directories_processed
 
-def find_llm_dirs():
-    """Find all directories containing 'LLM' in their name"""
+def find_llm_dirs(task_filter=None, llm_dir_filter=None):
+    """Find all directories containing 'LLM_code' in their name
+    
+    Suporta tanto a estrutura antiga (ChatGPT_code, Claude_code) quanto
+    a nova estrutura (ChatGPT_Claude, Claude_ChatGPT, etc.)
+    
+    Args:
+        task_filter: Se fornecido, filtra apenas tarefas que contenham este nome (ex: '1_fsm')
+        llm_dir_filter: Se fornecido, filtra apenas diretórios LLM específicos (caminho completo)
+    """
     llm_dirs = []
     for root, dirs, _ in os.walk('.'):
-        llm_subdirs = [d for d in dirs if 'LLM' in d]
-        for subdir in llm_subdirs:
-            full_path = os.path.join(root, subdir)
-            llm_dirs.append(full_path)
+        if 'LLM_code' in dirs:
+            llm_code_path = os.path.join(root, 'LLM_code')
+            
+            # Filtro por tarefa
+            if task_filter:
+                task_name = os.path.basename(os.path.dirname(llm_code_path))
+                if task_filter not in task_name:
+                    continue
+            
+            # Filtro por diretório LLM específico
+            if llm_dir_filter:
+                if llm_dir_filter != llm_code_path:
+                    continue
+            
+            # Procura subdiretórios dentro de LLM_code
+            if os.path.exists(llm_code_path):
+                has_valid_subdir = False
+                try:
+                    for item in os.listdir(llm_code_path):
+                        subdir_path = os.path.join(llm_code_path, item)
+                        if os.path.isdir(subdir_path):
+                            # Verifica se contém arquivos .c (código de verificação)
+                            try:
+                                has_c_files = any(f.endswith('.c') for f in os.listdir(subdir_path) 
+                                                if os.path.isfile(os.path.join(subdir_path, f)))
+                                if has_c_files:
+                                    has_valid_subdir = True
+                                    break
+                            except (PermissionError, OSError):
+                                continue
+                except (PermissionError, OSError):
+                    continue
+                if has_valid_subdir:
+                    llm_dirs.append(llm_code_path)
     return llm_dirs
 
 def create_summary_csv(results_summary):
@@ -183,30 +403,78 @@ def create_summary_csv(results_summary):
     print(f"\nSummary CSV created: verification_summary.csv")
 
 def main():
-    llm_dirs = find_llm_dirs()
+    parser = argparse.ArgumentParser(
+        description='Executa verificação de propriedades usando ESBMC',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Exemplos de uso:
+  # Executar todas as verificações
+  python run_verification.py
+  
+  # Executar apenas para uma tarefa específica
+  python run_verification.py --task 1_fsm
+  
+  # Executar apenas para um diretório LLM específico
+  python run_verification.py --llm-dir result/1_fsm/LLM_code
+  
+  # Executar apenas uma propriedade específica
+  python run_verification.py --task 1_fsm --property 1
+  
+  # Executar apenas subdiretórios específicos (ChatGPT_Claude e Claude_ChatGPT)
+  python run_verification.py --attempt-filter ChatGPT_Claude Claude_ChatGPT
+  
+  # Combinar filtros: task + subdiretórios específicos
+  python run_verification.py --task 1_fsm --attempt-filter ChatGPT_Claude Claude_ChatGPT
+  
+  # Combinar todos os filtros
+  python run_verification.py --task 1_fsm --property 1 --attempt-filter ChatGPT_Claude
+        """
+    )
+    parser.add_argument('--task', help='Nome da tarefa para filtrar (ex: 1_fsm, 0_triplex)')
+    parser.add_argument('--llm-dir', help='Caminho completo para diretório LLM_code específico')
+    parser.add_argument('--property', type=int, help='Número da propriedade para verificar (ex: 1, 2, 3)')
+    parser.add_argument('--attempt-filter', nargs='+', 
+                       help='Lista de nomes de subdiretórios para filtrar (ex: ChatGPT_Claude Claude_ChatGPT)')
+    parser.add_argument('--no-csv', action='store_true', help='Não gerar arquivo CSV de resumo')
+    
+    args = parser.parse_args()
+    
+    # Encontra diretórios LLM com filtros aplicados
+    llm_dirs = find_llm_dirs(task_filter=args.task, llm_dir_filter=args.llm_dir)
     
     if not llm_dirs:
-        print("No directories containing 'LLM' found.")
+        print("Nenhum diretório contendo 'LLM_code' encontrado.")
+        if args.task:
+            print(f"Tentativa de filtro por tarefa: {args.task}")
+        if args.llm_dir:
+            print(f"Tentativa de filtro por diretório: {args.llm_dir}")
         return
     
-    print(f"Found {len(llm_dirs)} LLM directories:")
+    print(f"Encontrados {len(llm_dirs)} diretórios LLM:")
     for dir in llm_dirs:
         print(f"  {dir}")
+    
+    if args.property:
+        print(f"\n⚠️  Modo filtrado: verificando apenas Property {args.property}")
+    
+    if args.attempt_filter:
+        print(f"\n⚠️  Modo filtrado: verificando apenas subdiretórios: {args.attempt_filter}")
     
     verifier = PropertyVerifier()
     total_directories_processed = 0
     
     for llm_dir in llm_dirs:
-        print(f"\nProcessing LLM directory: {llm_dir}")
-        directories_processed = process_llm_directory(verifier, llm_dir)
+        print(f"\nProcessando diretório LLM: {llm_dir}")
+        directories_processed = process_llm_directory(verifier, llm_dir, args.property, args.attempt_filter)
         total_directories_processed += directories_processed
     
     if total_directories_processed == 0:
-        print("\nNo files with VERIFY_PROPERTY definitions found in any directory.")
+        print("\nNenhum arquivo com definições VERIFY_PROPERTY encontrado em nenhum diretório.")
     else:
-        print(f"\nVerification complete. Processed {total_directories_processed} directories.")
-        # Create summary CSV
-        create_summary_csv(verifier.results_summary)
+        print(f"\n✓ Verificação concluída. Processados {total_directories_processed} diretórios.")
+        # Cria CSV de resumo apenas se não foi solicitado para não criar
+        if not args.no_csv:
+            create_summary_csv(verifier.results_summary)
 
 if __name__ == "__main__":
     main()

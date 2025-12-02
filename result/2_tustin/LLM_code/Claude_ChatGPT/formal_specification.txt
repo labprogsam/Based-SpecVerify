@@ -1,0 +1,123 @@
+# State Variable Mapping and Requirement Analysis
+
+## 1. State Variable Mapping
+
+### Variable Names and Meanings:
+- **rtDW.UnitDelay_DSTATE**: Previous input value (xinpv)
+  - Possible values: Any real number
+  - Meaning: Stores previous rtU.cmd value
+  - **UPDATE: After integrator_12B_step() with value rtU.cmd**
+
+- **rtDW.UnitDelay1_DSTATE**: Previous output value (ypv)
+  - Possible values: Any real number (bounded by limits after saturation)
+  - Meaning: Stores previous rtb_Switch1 (saturated output) value
+  - **UPDATE: After integrator_12B_step() with value rtb_Switch1 (saturated output)**
+
+### Input Variables:
+- **rtU.cmd**: Current input signal (xin)
+- **rtU.T**: Time step (T)
+- **rtU.TL**: Top Limit
+- **rtU.BL**: Bottom Limit
+- **rtU.reset**: Reset flag (boolean)
+- **rtU.ic**: Initial condition
+
+### Output Variable:
+- **rtY.yout**: Integration output (yout)
+
+### Internal Variables:
+- **rtb_Switch**: Unsaturated integration result
+- **rtb_Switch1**: Saturated output (becomes rtY.yout)
+- **rtb_RelationalOperator**: TL < BL comparison flag
+
+## 2. Requirement Analysis
+
+### Requirement 1a: Reset with bounded IC
+- Initial conditions: rtU.reset == true, rtU.BL <= rtU.ic <= rtU.TL
+- Input triggers: rtU.reset = true
+- Expected state changes: rtb_Switch = rtU.ic, rtY.yout = rtU.ic
+- Output verification: rtY.yout == rtU.ic
+- Timing requirements: Check after 1 cycle (after integrator_12B_step())
+
+### Requirement 1b: Reset with IC >= TL (TL >= BL)
+- Initial conditions: rtU.reset == true, rtU.ic >= rtU.TL, rtU.TL >= rtU.BL
+- Input triggers: rtU.reset = true
+- Expected state changes: rtb_Switch = rtU.ic, rtY.yout = rtU.TL
+- Output verification: rtY.yout == rtU.TL
+- Timing requirements: Check after 1 cycle
+
+### Requirement 1c: Reset with IC <= BL (TL >= BL)
+- Initial conditions: rtU.reset == true, rtU.ic <= rtU.BL, rtU.TL >= rtU.BL
+- Input triggers: rtU.reset = true
+- Expected state changes: rtb_Switch = rtU.ic, rtY.yout = rtU.BL
+- Output verification: rtY.yout == rtU.BL
+- Timing requirements: Check after 1 cycle
+
+### Requirement 1d: Reset with IC >= BL (TL < BL)
+- Initial conditions: rtU.reset == true, rtU.ic >= rtU.BL, rtU.TL < rtU.BL
+- Input triggers: rtU.reset = true
+- Expected state changes: rtb_Switch = rtU.ic, rtY.yout = rtU.BL
+- Output verification: rtY.yout == rtU.BL
+- Timing requirements: Check after 1 cycle
+
+### Requirement 1e: Reset with IC <= TL (TL < BL)
+- Initial conditions: rtU.reset == true, rtU.ic <= rtU.TL, rtU.TL < rtU.BL
+- Input triggers: rtU.reset = true
+- Expected state changes: rtb_Switch = rtU.ic, rtY.yout = rtU.TL
+- Output verification: rtY.yout == rtU.TL
+- Timing requirements: Check after 1 cycle
+
+### Requirement 2a: Output bounded (TL >= BL)
+- Initial conditions: rtU.TL >= rtU.BL
+- Input triggers: Any inputs
+- Expected state changes: N/A
+- Output verification: rtU.BL <= rtY.yout <= rtU.TL
+- Timing requirements: Check after every cycle
+
+### Requirement 2b: Output bounded (TL < BL)
+- Initial conditions: rtU.TL < rtU.BL
+- Input triggers: Any inputs
+- Expected state changes: N/A
+- Output verification: rtU.TL <= rtY.yout <= rtU.BL
+- Timing requirements: Check after every cycle
+
+### Requirement 3: Normal operation equation
+- Initial conditions: rtU.reset == false, rtU.TL >= rtU.BL
+- Input triggers: Integration result within bounds
+- Expected state changes: rtb_Switch = (rtU.cmd + rtDW.UnitDelay_DSTATE) * 0.5 * rtU.T + rtDW.UnitDelay1_DSTATE
+- Output verification: rtY.yout == (rtU.cmd + rtDW.UnitDelay_DSTATE) * 0.5 * rtU.T + rtDW.UnitDelay1_DSTATE
+- Timing requirements: Check after each cycle when conditions met
+
+### Requirement 4a: Constant input integration test
+- Initial conditions: rtU.cmd == 1.0 for all cycles, rtU.T == 0.1, rtU.reset == false
+- Input triggers: Constant input over 100 cycles
+- Expected state changes: Progressive accumulation per Tustin formula
+- Output verification: |rtY.yout - (cycle * 0.1)| <= 0.1 for cycles 0-100
+- Timing requirements: Verify at each cycle from 0 to 100
+
+### Requirement 4b: Cosine input integration test  
+- Initial conditions: rtU.cmd == cos(t) values, rtU.T == 0.1, rtU.reset == false
+- Input triggers: Cosine sequence over 100 cycles
+- Expected state changes: Progressive accumulation per Tustin formula
+- Output verification: |rtY.yout - sin(t)| <= 0.1 for cycles 0-100
+- Timing requirements: Verify at each cycle from 0 to 100
+
+## 3. Timing Considerations
+
+### Update Sequences:
+1. integrator_12B_step() executes
+2. Internal computation: rtb_Switch = reset ? rtU.ic : (rtU.cmd + rtDW.UnitDelay_DSTATE) * 0.5 * rtU.T + rtDW.UnitDelay1_DSTATE
+3. Saturation applied: rtb_Switch1 = saturate(rtb_Switch, limits)
+4. Output assigned: rtY.yout = rtb_Switch1
+5. **State updates occur AFTER step completion:**
+   - rtDW.UnitDelay1_DSTATE = rtb_Switch1
+   - rtDW.UnitDelay_DSTATE = rtU.cmd
+
+### Critical Dependencies:
+- UnitDelay states must be read before being updated
+- Saturation logic depends on limit comparison (TL vs BL)
+- Reset overrides normal integration
+
+### Cycle Requirements:
+- Single cycle properties: Requirements 1a-1e, 2a-2b, 3
+- Multi-cycle properties: Requirements 4a (101 cycles), 4b (101 cycles)
+- State persistence: UnitDelay values carry between cycles

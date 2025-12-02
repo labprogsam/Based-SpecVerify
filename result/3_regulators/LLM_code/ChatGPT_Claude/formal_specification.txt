@@ -1,0 +1,240 @@
+regs_12B_analysis.txt
+
+1. State Variable Mapping
+- rtDW.Memory_PreviousInput
+  - Possible values: real_T in [-9999.0, 9999.0] (because it is assigned from rtb_Sum1 which is saturated to this range)
+  - Meaning: Stores the previous-cycle saturated integrator state for the height controller path (from <S13>). Although present in the update path, its current use in computation is nullified by a 0.0 gain in this code version.
+  - UPDATED AFTER regs_12B_step(): rtDW.Memory_PreviousInput = rtb_Sum1 (the saturated height integrator state at the end of the cycle). CLEAR
+
+- rtDW.UnitDelay_DSTATE
+  - Possible values: real_T in [-1.0, 1.0] (because it is assigned from rtb_CVdt_cmd after Saturation [-1,1])
+  - Meaning: Previous-cycle height error signal after saturation (hcv_cmd_fcs_fps - (-zcv_fcs_fps)) with limits [-1, 1]; used for trapezoidal integration in the height loop.
+  - UPDATED AFTER regs_12B_step(): rtDW.UnitDelay_DSTATE = rtb_CVdt_cmd (the saturated height error value at the end of the cycle). CLEAR
+
+- rtDW.UnitDelay1_DSTATE
+  - Possible values: real_T in [-9999.0, 9999.0]
+  - Meaning: Previous-cycle height integrator state for the hcv loop; used in trapezoidal integration and bounded by Switch2 saturation.
+  - UPDATED AFTER regs_12B_step(): rtDW.UnitDelay1_DSTATE = rtb_Sum1 (the saturated height integrator state at the end of the cycle). CLEAR
+
+- rtDW.UnitDelay_DSTATE_o
+  - Possible values: real_T (unbounded in code)
+  - Meaning: Previous-cycle pitch error rtb_Sum3 = (mcv_cmd_fcs_dps - mcv_fcs_dps); used for trapezoidal integration in pitch loop.
+  - UPDATED AFTER regs_12B_step(): rtDW.UnitDelay_DSTATE_o = rtb_Sum3 (the current pitch error at the end of the cycle). CLEAR
+
+- rtDW.UnitDelay1_DSTATE_k
+  - Possible values: real_T in [-9999.0, 9999.0]
+  - Meaning: Previous-cycle pitch integrator state for the mcv loop; bounded by Switch2 saturation.
+  - UPDATED AFTER regs_12B_step(): rtDW.UnitDelay1_DSTATE_k = rtb_Sum1_h (the saturated pitch integrator state at the end of the cycle). CLEAR
+
+State transitions and conditions (from code)
+- Height integrator state rtb_Sum1 (and stored in rtDW.UnitDelay1_DSTATE, rtDW.Memory_PreviousInput):
+  - Compute candidate: rtb_Sum1 = (rtb_CVdt_cmd + rtDW.UnitDelay_DSTATE) * 0.5 * 0.01 + rtDW.UnitDelay1_DSTATE
+  - Saturation: if rtb_Sum1 > 9999.0 then rtb_Sum1 = 9999.0; else if rtb_Sum1 < -9999.0 then rtb_Sum1 = -9999.0
+  - State updates: rtDW.Memory_PreviousInput = rtb_Sum1; rtDW.UnitDelay1_DSTATE = rtb_Sum1; rtDW.UnitDelay_DSTATE = rtb_CVdt_cmd
+- Height error rtb_CVdt_cmd:
+  - Compute: rtb_CVdt_cmd = (rtU.hcv_cmd_fcs_fps - (-rtU.zcv_fcs_fps))
+  - Saturation: clamp to [-1.0, 1.0]
+  - Note: A term “+ 0.0 * rtDW.Memory_PreviousInput * -0.2” has no effect
+- Pitch integrator state rtb_Sum1_h (and stored in rtDW.UnitDelay1_DSTATE_k):
+  - Compute candidate: rtb_Sum1_h = (rtb_Sum3 + rtDW.UnitDelay_DSTATE_o) * 0.5 * 0.01 + rtDW.UnitDelay1_DSTATE_k, where rtb_Sum3 = (rtU.mcv_cmd_fcs_dps - rtU.mcv_fcs_dps)
+  - Saturation: if rtb_Sum1_h > 9999.0 then rtb_Sum1_h = 9999.0; else if rtb_Sum1_h < -9999.0 then rtb_Sum1_h = -9999.0
+  - State updates: rtDW.UnitDelay1_DSTATE_k = rtb_Sum1_h; rtDW.UnitDelay_DSTATE_o = rtb_Sum3
+
+Update sequences (end of regs_12B_step)
+- Order of updates executed after all outputs have been computed:
+  1) rtDW.Memory_PreviousInput = rtb_Sum1
+  2) rtDW.UnitDelay_DSTATE = rtb_CVdt_cmd
+  3) rtDW.UnitDelay1_DSTATE = rtb_Sum1
+  4) rtDW.UnitDelay1_DSTATE_k = rtb_Sum1_h
+  5) rtDW.UnitDelay_DSTATE_o = rtb_Sum3
+- CLEAR: All UnitDelay and Memory blocks are updated after regs_12B_step() completes, with the values listed above, and are visible in the next cycle.
+
+2. For each requirement
+Note: One global step call is one cycle (regs_12B_step). All checks below are evaluated at cycle end. Where rate limits are specified “per second,” the per-cycle check equals (limit_per_sec / 100) because the model runs at 100 Hz. The code does not implement any amplitude or rate limiting on the outputs; therefore, verification must observe rtY.* signals across cycles.
+
+1) Requirement 1: Inner Loop Roll Regulator amplitude limit
+- Initial conditions
+  - rtDW.* states do not affect roll; roll output is memoryless.
+  - regs_12B_initialize() does not set states; globals are zero-initialized by C.
+- Input triggers
+  - Any cycle where |rtY.lcvdt_cmd_fcs_dps2| > 50.0 (deg/sec2).
+  - rtY.lcvdt_cmd_fcs_dps2 = (rtU.lcv_cmd_fcs_dps - rtU.lcv_fps_dps) * 2.5
+- Expected state changes
+  - None. No code-level saturation or hold exists for roll amplitude. No rtDW state is involved in roll computation.
+- Output verification
+  - Amplitude check each cycle: |rtY.lcvdt_cmd_fcs_dps2| <= 50.0
+  - Persistence check: if |rtY.lcvdt_cmd_fcs_dps2| > 50.0 for more than 100 consecutive cycles, requirement is violated.
+- Timing requirements
+  - Check at end of each cycle (post regs_12B_step()).
+  - Rolling counter/window of 100 cycles (1 second @ 100 Hz).
+
+2) Requirement 2: Inner Loop Pitch Regulator amplitude limit
+- Initial conditions
+  - Pitch output depends on integrator states: rtDW.UnitDelay1_DSTATE_k, rtDW.UnitDelay_DSTATE_o (both zero at power-up).
+- Input triggers
+  - Any cycle where |rtY.mcvdt_cmd_fcs_dps2| > 50.0 (deg/sec2).
+  - rtY.mcvdt_cmd_fcs_dps2 = Lookup(transition_bvr, rtU.vtas_adc_kts) * (rtU.mcv_cmd_fcs_dps - rtU.mcv_fcs_dps) + 5.0 * rtb_Sum1_h
+- Expected state changes
+  - Normal integrator updates per code (see Mapping). No amplitude limiting code on output; integrator states saturate at ±9999 but do not enforce 50 deg/sec2.
+- Output verification
+  - Amplitude check each cycle: |rtY.mcvdt_cmd_fcs_dps2| <= 50.0
+  - Persistence check: if |rtY.mcvdt_cmd_fcs_dps2| > 50.0 for more than 100 consecutive cycles, violation.
+- Timing requirements
+  - Check at end of each cycle.
+  - 100-cycle consecutive exceedance window.
+
+3) Requirement 3: Inner Loop Yaw Regulator amplitude limit
+- Initial conditions
+  - Yaw output is memoryless in this code path; depends on rtU and lookups only.
+- Input triggers
+  - Any cycle where |rtY.ncvdt_cmd_fcs_dps2| > 50.0 (deg/sec2).
+  - rtY.ncvdt_cmd_fcs_dps2 = ((rtU.ncv_cmd_fcs_dps*4.0 + 4.0*rtU.beta_adc_deg) + 1.5*rtU.beta_dot) * rtb_CVdt_cmd + (1.0 - rtb_CVdt_cmd) * (rtU.ncv_cmd_fcs_dps - rtU.ncv_fcs_dps)
+    where rtb_CVdt_cmd = Lookup(transition1, rtU.vtas_adc_kts)
+- Expected state changes
+  - None. No DW states are used for yaw in this code.
+- Output verification
+  - Amplitude check each cycle: |rtY.ncvdt_cmd_fcs_dps2| <= 50.0
+  - Persistence check: if |rtY.ncvdt_cmd_fcs_dps2| > 50.0 for more than 100 consecutive cycles, violation.
+- Timing requirements
+  - Check at end of each cycle.
+  - 100-cycle consecutive exceedance window.
+
+4) Requirement 4: Inner Loop Airspeed Regulator amplitude limit
+- Initial conditions
+  - Airspeed output is memoryless in this code path.
+- Input triggers
+  - Any cycle where |rtY.xcvdt_cmd_fcs_fps2| > 32.0 (ft/sec2).
+  - rtY.xcvdt_cmd_fcs_fps2 = (rtU.xcv_cmd_fcs_fps - (-rtU.dcv_fcs_fps)) * 0.5
+- Expected state changes
+  - None. No rtDW state is involved in xcv output.
+- Output verification
+  - Amplitude check each cycle: |rtY.xcvdt_cmd_fcs_fps2| <= 32.0
+  - Persistence check: if |rtY.xcvdt_cmd_fcs_fps2| > 32.0 for more than 100 consecutive cycles, violation.
+- Timing requirements
+  - Check at end of each cycle.
+  - 100-cycle consecutive exceedance window.
+
+5) Requirement 5: Inner Loop Height Regulator amplitude limit
+- Initial conditions
+  - Height output depends on integrator states: rtDW.UnitDelay_DSTATE, rtDW.UnitDelay1_DSTATE; both zero at power-up.
+- Input triggers
+  - Any cycle where |rtY.hcvdt_cmd_fcs_fps2| > 32.0 (ft/sec2).
+  - rtY.hcvdt_cmd_fcs_fps2 = 0.25 * rtb_Sum1 + rtb_CVdt_cmd
+    where:
+    rtb_CVdt_cmd = Saturate(hcv error (rtU.hcv_cmd_fcs_fps - (-rtU.zcv_fcs_fps))) to [-1, 1]
+    rtb_Sum1 = trapezoidal integral with Ts = 0.01 on rtb_CVdt_cmd, saturated to [-9999, 9999]
+- Expected state changes
+  - Only normal integrator updates/saturations per code; no amplitude limiting code on output to 32 ft/sec2.
+- Output verification
+  - Amplitude check each cycle: |rtY.hcvdt_cmd_fcs_fps2| <= 32.0
+  - Persistence check: if |rtY.hcvdt_cmd_fcs_fps2| > 32.0 for more than 100 consecutive cycles, violation.
+- Timing requirements
+  - Check at end of each cycle.
+  - 100-cycle consecutive exceedance window.
+
+6) Requirement 6: Inner Loop Roll Regulator rate limit
+- Initial conditions
+  - No state used for roll; verification must retain previous rtY.lcvdt_cmd_fcs_dps2 externally.
+- Input triggers
+  - Each cycle k>0: compute delta = rtY.lcvdt_cmd_fcs_dps2[k] - rtY.lcvdt_cmd_fcs_dps2[k-1]
+- Expected state changes
+  - None in code; no rate limiter implemented.
+- Output verification
+  - Per-cycle rate check: |delta| <= 50.0/100 = 0.5 deg/sec2 per cycle
+- Timing requirements
+  - Compare current sample (end of cycle k) to previous sample (end of cycle k-1). One-cycle latency check at 100 Hz.
+
+7) Requirement 7: Inner Loop Pitch Regulator rate limit
+- Initial conditions
+  - Integrator states active, but rate check applies to output samples across cycles; previous output must be retained externally for verification.
+- Input triggers
+  - Each cycle k>0: delta = rtY.mcvdt_cmd_fcs_dps2[k] - rtY.mcvdt_cmd_fcs_dps2[k-1]
+- Expected state changes
+  - None specifically for rate limiting; code has no such mechanism.
+- Output verification
+  - Per-cycle rate check: |delta| <= 50.0/100 = 0.5 deg/sec2 per cycle
+- Timing requirements
+  - Compare end-of-cycle values between consecutive cycles.
+
+8) Requirement 8: Inner Loop Yaw Regulator rate limit
+- Initial conditions
+  - Yaw is memoryless; verification must retain previous output externally.
+- Input triggers
+  - Each cycle k>0: delta = rtY.ncvdt_cmd_fcs_dps2[k] - rtY.ncvdt_cmd_fcs_dps2[k-1]
+- Expected state changes
+  - None; no rate-limiting in code.
+- Output verification
+  - Per-cycle rate check: |delta| <= 50.0/100 = 0.5 deg/sec2 per cycle
+- Timing requirements
+  - Compare end-of-cycle values between consecutive cycles.
+
+9) Requirement 9: Inner Loop Airspeed Regulator rate limit
+- Initial conditions
+  - Memoryless path; verification must retain previous rtY.xcvdt_cmd_fcs_fps2 externally.
+- Input triggers
+  - Each cycle k>0: delta = rtY.xcvdt_cmd_fcs_fps2[k] - rtY.xcvdt_cmd_fcs_fps2[k-1]
+- Expected state changes
+  - None; no rate-limiting code present.
+- Output verification
+  - Per-cycle rate check: |delta| <= 32.0/100 = 0.32 ft/sec2 per cycle
+- Timing requirements
+  - Compare end-of-cycle values between consecutive cycles.
+
+10) Requirement 10: Inner Loop Height Regulator rate limit
+- Initial conditions
+  - Height path uses integrator states; verification retains previous output externally.
+- Input triggers
+  - Each cycle k>0: delta = rtY.hcvdt_cmd_fcs_fps2[k] - rtY.hcvdt_cmd_fcs_fps2[k-1]
+- Expected state changes
+  - None specific to rate limiting; code lacks rate limiter.
+- Output verification
+  - Per-cycle rate check: |delta| <= 32.0/100 = 0.32 ft/sec2 per cycle
+- Timing requirements
+  - Compare end-of-cycle values between consecutive cycles.
+
+3. Timing Considerations
+- Update sequences
+  - All outputs (rtY.*) are computed before any state is updated within regs_12B_step().
+  - After outputs are computed, the following state updates occur at the end of the cycle:
+    - rtDW.Memory_PreviousInput = rtb_Sum1
+    - rtDW.UnitDelay_DSTATE = rtb_CVdt_cmd
+    - rtDW.UnitDelay1_DSTATE = rtb_Sum1
+    - rtDW.UnitDelay1_DSTATE_k = rtb_Sum1_h
+    - rtDW.UnitDelay_DSTATE_o = rtb_Sum3
+  - CLEAR: These UnitDelay and Memory states are updated after the global step call and take effect in the next cycle.
+
+- Critical dependencies
+  - hcvdt_cmd_fcs_fps2 depends on:
+    - Current cycle: rtb_CVdt_cmd (saturated height error)
+    - Previous cycles via states: rtDW.UnitDelay_DSTATE (prev height error), rtDW.UnitDelay1_DSTATE (prev height integrator)
+    - rtDW.Memory_PreviousInput is updated but currently multiplied by 0.0 in the computation path (no effect in this code)
+  - mcvdt_cmd_fcs_dps2 depends on:
+    - Current cycle: rtb_Sum3 (pitch error), Lookup(transition_bvr, rtU.vtas_adc_kts)
+    - Previous cycles via states: rtDW.UnitDelay_DSTATE_o (prev pitch error), rtDW.UnitDelay1_DSTATE_k (prev pitch integrator)
+  - lcvdt_cmd_fcs_dps2, ncvdt_cmd_fcs_dps2, xcvdt_cmd_fcs_fps2 are memoryless with respect to rtDW (they depend only on current rtU and lookups).
+
+- Cycle requirements
+  - One global function call regs_12B_step() equals one model cycle (10 ms at 100 Hz, implied by integrator step 0.01).
+  - All verifications (amplitude, persistence, rate) must use the values of rtY.* captured after the regs_12B_step() call returns.
+  - Persistence checks for Requirements 1–5: 100 consecutive cycles (1 second).
+  - Rate checks for Requirements 6–10: compare consecutive end-of-cycle samples; per-cycle rate thresholds:
+    - Roll, Pitch, Yaw: 0.5 deg/sec2 per cycle
+    - Axial, Height: 0.32 ft/sec2 per cycle
+
+Additional code-accurate signal computations (for reference during verification)
+- rtY.lcvdt_cmd_fcs_dps2 = (rtU.lcv_cmd_fcs_dps - rtU.lcv_fps_dps) * 2.5
+- rtb_CVdt_cmd (yaw blend factor) = Lookup(rtConstP.transition1_XData[0..3], rtU.vtas_adc_kts, rtConstP.transition1_YData[0..3])
+- rtY.ncvdt_cmd_fcs_dps2 = ((rtU.ncv_cmd_fcs_dps*4.0 + 4.0*rtU.beta_adc_deg) + 1.5*rtU.beta_dot) * rtb_CVdt_cmd + (1.0 - rtb_CVdt_cmd) * (rtU.ncv_cmd_fcs_dps - rtU.ncv_fcs_dps)
+- rtb_Sum3 (pitch error) = (rtU.mcv_cmd_fcs_dps - rtU.mcv_fcs_dps)
+- rtb_Sum1_h (pitch integrator, saturated ±9999) = (rtb_Sum3 + rtDW.UnitDelay_DSTATE_o) * 0.5 * 0.01 + rtDW.UnitDelay1_DSTATE_k, then clamped
+- rtY.mcvdt_cmd_fcs_dps2 = Lookup(rtConstP.transition_bvr_XData[0..1], rtU.vtas_adc_kts, rtConstP.transition_bvr_YData[0..1]) * rtb_Sum3 + 5.0 * rtb_Sum1_h
+- rtb_CVdt_cmd (height error, saturated ±1) = Saturate(rtU.hcv_cmd_fcs_fps - (-rtU.zcv_fcs_fps), [-1, 1])
+- rtb_Sum1 (height integrator, saturated ±9999) = (rtb_CVdt_cmd + rtDW.UnitDelay_DSTATE) * 0.5 * 0.01 + rtDW.UnitDelay1_DSTATE, then clamped
+- rtY.hcvdt_cmd_fcs_fps2 = 0.25 * rtb_Sum1 + rtb_CVdt_cmd
+- rtY.xcvdt_cmd_fcs_fps2 = (rtU.xcv_cmd_fcs_fps - (-rtU.dcv_fcs_fps)) * 0.5
+
+Notes on names and interfaces
+- Use exact code names for inputs (rtU.*), outputs (rtY.*), and states (rtDW.*) in all checks.
+- Yaw rate input name in code is rtU.beta_dot (not “betadot”).
+- All state checks and output checks are performed at cycle end, immediately after regs_12B_step() returns.
+- CLEAR: UnitDelay and Memory are updated after regs_12B_step() and hold the values listed above for use in the next cycle.

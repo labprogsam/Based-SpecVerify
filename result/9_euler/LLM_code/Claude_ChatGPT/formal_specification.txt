@@ -1,0 +1,150 @@
+Based on the provided C code and requirements, here is the systematic analysis:
+
+## 1. State Variable Mapping
+
+### Variables:
+- **rtU.phi**: Roll angle input [rad]
+- **rtU.theta**: Pitch angle input [rad]  
+- **rtU.psi**: Yaw angle input [rad]
+- **rtU.Vi[3]**: 3x1 Inertial Vector input
+- **rtY.DCM321[9]**: 3x3 Rotation Matrix output
+- **rtY.Vb[3]**: 3x1 Body Vector output
+
+### Internal Computation Variables:
+- **rtb_VectorConcatenate[9]**: Euler2 (pitch) rotation matrix
+- **rtb_VectorConcatenate_g[9]**: Euler1 (heading) rotation matrix, later reused for Euler3 (roll)
+- **rtb_Product[9]**: Product of Euler1 × Euler2
+
+### Note on UnitDelay:
+**NO UnitDelay blocks are present in this code - all computations are combinatorial within a single step**
+
+## 2. Requirements Analysis
+
+### Requirement 1: DCM321 = Euler3 × Euler2 × Euler1
+
+**Initial conditions:** None (combinatorial)
+
+**Input triggers:** rtU.phi, rtU.theta, rtU.psi
+
+**Expected state changes:**
+- Euler2 matrix computed from rtU.theta
+- Euler1 matrix computed from rtU.psi  
+- rtb_Product = Euler1 × Euler2
+- Euler3 matrix computed from rtU.phi
+- rtY.DCM321 = Euler3 × rtb_Product
+
+**Output verification:** rtY.DCM321 should equal the product of three rotation matrices
+
+**Timing requirements:** Single cycle - check after euler321_I2B_12B_step()
+
+### Requirement 2: Vb = DCM321 × Vi
+
+**Initial conditions:** None (combinatorial)
+
+**Input triggers:** rtU.Vi[0], rtU.Vi[1], rtU.Vi[2], rtU.phi, rtU.theta, rtU.psi
+
+**Expected state changes:**
+- DCM321 computed as per Requirement 1
+- rtY.Vb = DCM321 × rtU.Vi
+
+**Output verification:** rtY.Vb[i] = sum over j of (rtb_VectorConcatenate[i+3*j] * rtU.Vi[j])
+
+**Timing requirements:** Single cycle - check after euler321_I2B_12B_step()
+
+### Requirement 3: |Vb| = |Vi|
+
+**Initial conditions:** None (combinatorial)
+
+**Input triggers:** rtU.Vi[0], rtU.Vi[1], rtU.Vi[2], rtU.phi, rtU.theta, rtU.psi
+
+**Expected state changes:**
+- Vb computed as per Requirement 2
+
+**Output verification:** sqrt(rtY.Vb[0]^2 + rtY.Vb[1]^2 + rtY.Vb[2]^2) = sqrt(rtU.Vi[0]^2 + rtU.Vi[1]^2 + rtU.Vi[2]^2)
+
+**Timing requirements:** Single cycle - check after euler321_I2B_12B_step()
+
+### Requirement 4: DCM321 invertible except theta = ±π/2
+
+**Initial conditions:** None (combinatorial)
+
+**Input triggers:** rtU.theta != ±π/2
+
+**Expected state changes:**
+- DCM321 computed as per Requirement 1
+
+**Output verification:** determinant(rtY.DCM321) != 0 when rtU.theta != ±π/2
+
+**Timing requirements:** Single cycle - check after euler321_I2B_12B_step()
+
+### Requirement 5: Distinct mapping for each theta
+
+**Initial conditions:** None (combinatorial)
+
+**Input triggers:** rtU.theta (varying values)
+
+**Expected state changes:**
+- DCM321 computed differently for different theta values
+
+**Output verification:** Different rtU.theta values produce different rtY.DCM321 matrices
+
+**Timing requirements:** Single cycle - check after euler321_I2B_12B_step()
+
+### Requirement 6: Orthonormal rows and columns
+
+**Initial conditions:** None (combinatorial)
+
+**Input triggers:** rtU.phi, rtU.theta, rtU.psi
+
+**Expected state changes:**
+- DCM321 computed as per Requirement 1
+
+**Output verification:**
+- Row dot products: rtY.DCM321[i*3+k] × rtY.DCM321[j*3+k] = δ_ij (Kronecker delta)
+- Column dot products: rtY.DCM321[k*3+i] × rtY.DCM321[k*3+j] = δ_ij
+
+**Timing requirements:** Single cycle - check after euler321_I2B_12B_step()
+
+### Requirement 7: DCM321 × DCM321^T = Identity
+
+**Initial conditions:** None (combinatorial)
+
+**Input triggers:** rtU.phi, rtU.theta, rtU.psi
+
+**Expected state changes:**
+- DCM321 computed as per Requirement 1
+
+**Output verification:** rtY.DCM321 × transpose(rtY.DCM321) = 3x3 Identity matrix
+
+**Timing requirements:** Single cycle - check after euler321_I2B_12B_step()
+
+### Requirement 8: det(DCM321) = 1.0
+
+**Initial conditions:** None (combinatorial)
+
+**Input triggers:** rtU.phi, rtU.theta, rtU.psi
+
+**Expected state changes:**
+- DCM321 computed as per Requirement 1
+
+**Output verification:** determinant(rtY.DCM321) = 1.0
+
+**Timing requirements:** Single cycle - check after euler321_I2B_12B_step()
+
+## 3. Timing Considerations
+
+### Update sequences:
+1. All computations occur within euler321_I2B_12B_step()
+2. Sequence: Euler2 → Euler1 → (Euler1×Euler2) → Euler3 → (Euler3×Product) → DCM321 → Vb
+
+### Critical dependencies:
+- DCM321 depends on all three angle inputs
+- Vb depends on DCM321 and Vi
+
+### Cycle requirements:
+- **All outputs available after single euler321_I2B_12B_step() call**
+- No state retention between cycles
+- Pure combinatorial logic - no delays
+
+### UnitDelay Update Status:
+**NOT APPLICABLE - No UnitDelay blocks present in this implementation**

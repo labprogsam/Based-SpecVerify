@@ -1,0 +1,123 @@
+# State Variable Analysis for NLGuidance_12B
+
+## 1. State Variable Mapping
+
+### Input Variables:
+- **rtU.Xtarg[3]**: Target inertial position vector [m]
+  - Values: Real numbers (3x1 vector)
+  - Meaning: Target position in 3D space
+  
+- **rtU.Xv[3]**: Vehicle inertial position vector [m]
+  - Values: Real numbers (3x1 vector)
+  - Meaning: Vehicle position in 3D space
+  
+- **rtU.Vv[3]**: Vehicle inertial velocity vector [m/s]
+  - Values: Real numbers (3x1 vector)
+  - Meaning: Vehicle velocity in 3D space
+  
+- **rtU.r**: Minimum standoff radius [m]
+  - Values: Positive real number
+  - Meaning: Minimum distance to maintain from target
+
+### Output Variables:
+- **rtY.yout[3]**: Aim point inertial position vector [m]
+  - Values: Real numbers (3x1 vector)
+  - Meaning: Commanded aim point for guidance
+
+### Internal State Variables:
+- **Xr**: Relative position vector (Target - Vehicle)
+- **rtb_MathFunction1**: Distance from vehicle to target (||Xr||)
+- **rtb_Sum2**: Distance check (||Xr||² - r²)
+- **rtb_MathFunction_idx_0**: Velocity check (||Vv||² * ||Xr||² - (Xr·Vv)²)
+- **rtb_XrDotVv**: Dot product of relative position and velocity
+
+### Key Conditions:
+- **Inner Mode**: (rtb_Sum2 <= 0.0) || (rtb_MathFunction_idx_0 <= 0.0)
+- **Outer Mode**: (rtb_Sum2 > 0.0) && (rtb_MathFunction_idx_0 > 0.0)
+- **CW/CCW Decision**: Cross product check for orbit direction
+
+## 2. Requirements Analysis
+
+### Requirement 1: NLGuidance shall always maintain the target on the port-side of the vehicle
+- **Initial conditions**: Any vehicle and target positions
+- **Input triggers**: All inputs (Xtarg, Xv, Vv, r)
+- **Expected state changes**: Output generates CCW orbit (port-side maintenance)
+- **Output verification**: Check cross product sign in Outer mode
+- **Timing requirements**: 1 cycle after NLGuidance_12B_step()
+- **UnitDelay Update**: Not applicable (no UnitDelay blocks in code)
+
+### Requirement 2: NLGuidance shall compute the inertial position vector for aim point 1
+- **Initial conditions**: Outer mode active (rtb_Sum2 > 0.0 && rtb_MathFunction_idx_0 > 0.0)
+- **Input triggers**: All inputs when in tangent approach
+- **Expected state changes**: Computes rtb_Sum_c vectors (CCW case)
+- **Output verification**: rtY.yout = Xv + rtb_Sum_c when CCW branch taken
+- **Timing requirements**: 1 cycle after NLGuidance_12B_step()
+- **UnitDelay Update**: Not applicable
+
+### Requirement 3: NLGuidance shall compute the inertial position vector for aim point 2
+- **Initial conditions**: Outer mode active (rtb_Sum2 > 0.0 && rtb_MathFunction_idx_0 > 0.0)
+- **Input triggers**: All inputs when in tangent approach
+- **Expected state changes**: Computes alternative aim point vectors (CW case)
+- **Output verification**: rtY.yout computed with different sign when CW branch
+- **Timing requirements**: 1 cycle after NLGuidance_12B_step()
+- **UnitDelay Update**: Not applicable
+
+### Requirement 4: NLGuidance shall always select aim point for counter clockwise loiter
+- **Initial conditions**: Outer mode active
+- **Input triggers**: Cross product calculation (rtb_Sum2_tmp - rtb_Sum2_tmp)
+- **Expected state changes**: Selection based on cross product sign
+- **Output verification**: When cross product < 0, select CCW aim point
+- **Timing requirements**: 1 cycle after NLGuidance_12B_step()
+- **UnitDelay Update**: Not applicable
+
+### Requirement 5: When UAV position less than minimum standoff, command nearest position
+- **Initial conditions**: rtb_Sum2 <= 0.0 (||Xr||² - r² <= 0)
+- **Input triggers**: Vehicle within standoff radius
+- **Expected state changes**: Enter Inner mode, compute two candidate points
+- **Output verification**: Select point with minimum distance (rtb_Sum2_tmp < rtb_Xr_idx_1)
+- **Timing requirements**: 1 cycle after NLGuidance_12B_step()
+- **UnitDelay Update**: Not applicable
+
+### Requirement 6a: Change in output magnitude shall not exceed (||Vv|| + ||Vt||) * T
+- **Initial conditions**: Previous output state stored externally
+- **Input triggers**: Any change in inputs
+- **Expected state changes**: Output change bounded by velocity constraints
+- **Output verification**: ||yout(k) - yout(k-1)|| <= (||Vv|| + ||Vt||) * T
+- **Timing requirements**: Comparison across 2 consecutive cycles
+- **UnitDelay Update**: Not applicable (requires external state storage)
+
+### Requirement 7: Output equivalent altitude for in-plane navigation
+- **Initial conditions**: Xtarg[2] == Xv[2] (equal altitudes)
+- **Input triggers**: Equal altitude condition
+- **Expected state changes**: yout[2] maintains vehicle altitude
+- **Output verification**: In Inner mode: yout[2] = 0.0 (relative to vehicle)
+- **Timing requirements**: 1 cycle after NLGuidance_12B_step()
+- **UnitDelay Update**: Not applicable
+
+## 3. Timing Considerations
+
+### Update Sequences:
+1. Input reading (rtU.*)
+2. Relative position calculation (Xr = Xtarg - Xv)
+3. Distance and velocity computations
+4. Mode selection (Inner/Outer)
+5. Aim point calculation
+6. Output assignment (rtY.yout)
+
+### Critical Dependencies:
+- Mode selection depends on distance and velocity checks
+- Inner mode: Selects between two tangent points
+- Outer mode: Selects between CW/CCW orbits
+- All computations complete within single step function
+
+### Cycle Requirements:
+- Single cycle execution for all computations
+- No internal state persistence (stateless algorithm)
+- Each NLGuidance_12B_step() call represents one complete cycle
+- Output available immediately after step function returns
+
+### Important Notes:
+- **NO UnitDelay blocks present in the code**
+- All computations are combinatorial within single cycle
+- State persistence must be handled externally if needed for requirement 6
+- Cross product check appears to have implementation issue (rtb_Sum2_tmp - rtb_Sum2_tmp always equals 0)

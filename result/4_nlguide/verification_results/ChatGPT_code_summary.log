@@ -1,33 +1,33 @@
-Verification Summary - 2025-01-13 15:55:57.742177
-Directory: ./4_nlguide/LLM_code/ChatGPT_code
+Verification Summary - 2025-11-30 21:12:10.373418
+Directory: .\4_nlguide\LLM_code\ChatGPT_code
 Source file: ert_main.c
 ==================================================
 
 Property 1
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_SYNTAX
 
 Property 2
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_SYNTAX
 
 Property 3
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_SYNTAX
 
 Property 4
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_SYNTAX
 
 Property 5
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_SYNTAX
 
 Property 6
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_SYNTAX
 
 Property 7
 --------------------
-Status: UNKNOWN
+Status: PARSE_ERROR_SYNTAX
 

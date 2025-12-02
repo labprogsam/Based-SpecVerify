@@ -1,0 +1,223 @@
+Filename: NLGuidance_12B_analysis.txt
+
+1. State Variable Mapping
+- Computation/mode flags (derived from code decisions; no persistent storage)
+  - S1_If_Mode
+    - Possible values: "Inner", "Outer"
+    - Meaning: Which If-action SubSystem in '<S1>' executes
+    - Condition:
+      - Inner if: (|rtU.Xtarg - rtU.Xv|^2 - rtU.r^2) <= 0.0 OR (||rtU.Vv||^2 * |rtU.Xtarg - rtU.Xv|^2 - ( (rtU.Xtarg - rtU.Xv)·rtU.Vv )^2) <= 0.0
+      - Outer otherwise
+  - S3_If_Branch (only evaluated when S1_If_Mode = "Outer")
+    - Possible values: "CCW", "CW"
+    - Meaning: Which branch in '<S3>' executes ("CCW" SubSystem '<S12>' vs "CW" SubSystem '<S13>')
+    - Condition: if ((rtb_Xr_idx_0 * rtb_Sum_c_idx_1) - (rtb_Xr_idx_0 * rtb_Sum_c_idx_1)) < 0.0 then "CW" else "CCW"
+      - In implementation: this is always false because the expression is identically zero. Therefore, "CCW" is always selected.
+  - S2_If_Select (only evaluated when S1_If_Mode = "Inner")
+    - Possible values: "Act1", "Act2"
+    - Meaning: Which aim point candidate is selected inside standoff or degenerate geometry
+    - Condition:
+      - Compute dAct1 = sqrt(( (rtU.Xtarg[0] + (rtU.r/|Xr|)*Xr_x) - rtU.Xv[0])^2 + ( (rtU.Xtarg[1] + (rtU.r/|Xr|)*Xr_y) - rtU.Xv[1])^2 + (0.0 - rtU.Xv[2])^2)
+      - Compute dAct2 = sqrt(( (rtU.Xtarg[0] - (rtU.r/|Xr|)*Xr_x) - rtU.Xv[0])^2 + ( (rtU.Xtarg[1] - (rtU.r/|Xr|)*Xr_y) - rtU.Xv[1])^2 + (0.0 - rtU.Xv[2])^2)
+      - If dAct1 < dAct2 then "Act1" else "Act2"
+
+- Key computed vectors/scalars (code-local temporaries used for decisions)
+  - rtb_Xr_idx_0, rtb_Xr_idx_1, rtb_Product1 (during initial '<S1>/Sum')
+    - Values: rtb_Xr_idx_0 = rtU.Xtarg[0] - rtU.Xv[0]; rtb_Xr_idx_1 = rtU.Xtarg[1] - rtU.Xv[1]; rtb_Product1 = rtU.Xtarg[2] - rtU.Xv[2]
+    - Meaning: Components of Xr = rtU.Xtarg - rtU.Xv (relative position)
+    - Note: rtb_Product1 is reused later for other meanings; only here it holds Xr_z.
+  - rtb_Sum2_tmp = |Xr|^2 = (rtb_Xr_idx_0^2 + rtb_Xr_idx_1^2 + (rtU.Xtarg[2] - rtU.Xv[2])^2)
+  - rtb_MathFunction1 = |Xr| = sqrt(rtb_Sum2_tmp)
+  - rtb_XrDotVv = (rtb_Xr_idx_0 * rtU.Vv[0] + rtb_Xr_idx_1 * rtU.Vv[1] + (rtU.Xtarg[2] - rtU.Xv[2]) * rtU.Vv[2]) = Xr·Vv
+  - Outer/Inner gate expressions:
+    - rtb_Sum2 = |Xr|^2 - rtU.r^2
+    - tmpV = ||rtU.Vv|| = sqrt(rtU.Vv[0]^2 + rtU.Vv[1]^2 + rtU.Vv[2]^2)
+    - rtb_MathFunction_idx_0 (reused) = tmpV^2 * |Xr|^2 - (Xr·Vv)^2
+  - Outer-only intermediates:
+    - scale = sqrt( (|Xr|^2 - r^2) / (tmpV^2 * |Xr|^2 - (Xr·Vv)^2) )
+    - t = scale * rtU.Vv (vector)
+    - M1 = 1 / |Xr|^2
+    - S = scale * (Xr·Vv)
+    - k_plus = rtU.r + S
+    - k_minus = S - rtU.r
+
+- Outputs
+  - rtY.yout[0..2]
+    - In Inner:
+      - If S2_If_Select = "Act1": rtY.yout[0] = rtU.Xtarg[0] + (rtU.r/|Xr|)*Xr_x; rtY.yout[1] = rtU.Xtarg[1] + (rtU.r/|Xr|)*Xr_y; rtY.yout[2] = 0.0
+      - Else ("Act2"): rtY.yout[0] = rtU.Xtarg[0] - (rtU.r/|Xr|)*Xr_x; rtY.yout[1] = rtU.Xtarg[1] - (rtU.r/|Xr|)*Xr_y; rtY.yout[2] = 0.0
+    - In Outer:
+      - CW branch (never selected in current code): rtY.yout = rtU.Xv + ( ((k_plus)*Xr*(-M1) + t) * rtU.r + Xr )
+      - CCW branch (always selected): rtY.yout = rtU.Xv + ( ((k_minus)*Xr*(+M1) - t) * rtU.r + Xr )
+
+- Persistent state/UnitDelay
+  - There is no UnitDelay or persistent state in NLGuidance_12B.c.
+  - CLEAR: No UnitDelay is present; therefore NOTHING is updated after NLGuidance_12B_step().
+
+2. For each requirement
+
+2.1 Requirement 1
+- Text: NLGuidance shall always maintain the target on the port-side of the vehicle.
+- Initial conditions (at cycle start):
+  - Arbitrary rtU.Xtarg, rtU.Xv, rtU.Vv, rtU.r
+- Input triggers:
+  - Any inputs that set S1_If_Mode = "Outer" will lead to CCW loiter branch selection by code.
+  - For S1_If_Mode = "Inner", selection is based solely on nearest distance; no port-side criterion is used.
+- Expected state changes:
+  - When Outer conditions hold (|Xr|^2 > r^2 and tmpV^2*|Xr|^2 - (Xr·Vv)^2 > 0), S1_If_Mode = "Outer" and S3_If_Branch = "CCW" (always).
+  - When Inner conditions hold, S1_If_Mode = "Inner"; S2_If_Select chosen by dAct1 < dAct2; no enforced port-side.
+- Output verification (at end of cycle, after NLGuidance_12B_step()):
+  - If S1_If_Mode = "Outer": Verify rtY.yout equals the CCW expression:
+    rtY.yout = rtU.Xv + ( ((k_minus)*Xr*(+M1) - t) * rtU.r + Xr )
+  - If S1_If_Mode = "Inner": No explicit port-side test is enforced by code; only nearest-aim output in XY and rtY.yout[2] = 0.0.
+- Timing requirements:
+  - 0-cycle latency: Orientation selection and output occur in the same NLGuidance_12B_step() call.
+  - Check at cycle end.
+
+2.2 Requirement 2
+- Text: Compute inertial position vector for aim point 1 at standoff, perpendicular to the tangent relative position vector from the vehicle to the corresponding aim point.
+- Initial conditions:
+  - Conditions for "Outer" mode must hold: |Xr|^2 - r^2 > 0 and tmpV^2*|Xr|^2 - (Xr·Vv)^2 > 0.
+- Input triggers:
+  - Any rtU.* establishing Outer mode.
+- Relevant state variables:
+  - S1_If_Mode = "Outer"; S3_If_Branch determines which aim point is selected.
+- Expected state changes:
+  - Aim point #1 corresponds to the S3 "CW" branch outputs:
+    rtY.yout = rtU.Xv + ( ((k_plus)*Xr*(-M1) + t) * rtU.r + Xr )
+  - Note: Due to the condition being always false, S3 "CW" branch is never executed; code still contains its explicit expression.
+- Output verification (end of cycle):
+  - To validate aim point #1 computation (even if not selected), reconstruct the CW expression above and verify:
+    - |(Xap1 - rtU.Xtarg)| = rtU.r (standoff on circle)
+    - (Xap1 - rtU.Xtarg) · (Xap1 - rtU.Xv) = 0 (perpendicularity at tangent)
+    - Where Xap1 is the CW expression result.
+- Timing requirements:
+  - 0-cycle computation within the same NLGuidance_12B_step().
+  - Check at cycle end.
+
+2.3 Requirement 3
+- Text: Compute inertial position vector for aim point 2 at standoff, perpendicular to the tangent relative position vector from the vehicle to the corresponding aim point.
+- Initial conditions:
+  - Same as Req 2 (Outer mode conditions).
+- Input triggers:
+  - Any rtU.* establishing Outer mode.
+- Relevant state variables:
+  - S1_If_Mode = "Outer"; S3_If_Branch = "CCW" (always in this code).
+- Expected state changes:
+  - Aim point #2 corresponds to the S3 "CCW" branch outputs and is always selected in Outer:
+    rtY.yout = rtU.Xv + ( ((k_minus)*Xr*(+M1) - t) * rtU.r + Xr )
+- Output verification (end of cycle):
+  - Verify for the CCW output:
+    - |(rtY.yout - rtU.Xtarg)| = rtU.r
+    - (rtY.yout - rtU.Xtarg) · (rtY.yout - rtU.Xv) = 0
+- Timing requirements:
+  - 0-cycle computation; check at cycle end.
+
+2.4 Requirement 4
+- Text: Always select aim point #1 or #2 resulting in a counter clockwise loiter for the UAV.
+- Initial conditions:
+  - Outer mode conditions.
+- Input triggers:
+  - Any Outer-mode configuration.
+- Relevant state variables:
+  - S1_If_Mode; S3_If_Branch.
+- Expected state changes:
+  - S3_If_Branch must be "CCW".
+  - In code: If ((rtb_Xr_idx_0 * rtb_Sum_c_idx_1) - (rtb_Xr_idx_0 * rtb_Sum_c_idx_1)) < 0.0 then CW else CCW. This is always false; hence always CCW.
+- Output verification:
+  - In Outer: Verify rtY.yout equals the CCW expression:
+    rtY.yout = rtU.Xv + ( ((k_minus)*Xr*(+M1) - t) * rtU.r + Xr )
+- Timing requirements:
+  - 0-cycle. Check at cycle end.
+
+2.5 Requirement 5
+- Text: When inside standoff, command nearest inertial position to reestablish standoff while maintaining target on port-side.
+- Initial conditions:
+  - Inner mode condition holds: |Xr|^2 - rtU.r^2 <= 0 OR tmpV^2*|Xr|^2 - (Xr·Vv)^2 <= 0.
+- Input triggers:
+  - Any inputs satisfying the above.
+- Relevant state variables:
+  - S1_If_Mode = "Inner"; S2_If_Select determined by nearest-distance comparison.
+- Expected state changes:
+  - S2_If_Select = "Act1" if dAct1 < dAct2; else "Act2".
+  - Port-side constraint is NOT enforced by code in Inner mode.
+- Output verification:
+  - If "Act1": rtY.yout[0] = rtU.Xtarg[0] + (rtU.r/|Xr|)*Xr_x; rtY.yout[1] = rtU.Xtarg[1] + (rtU.r/|Xr|)*Xr_y; rtY.yout[2] = 0.0
+  - Else "Act2": rtY.yout[0] = rtU.Xtarg[0] - (rtU.r/|Xr|)*Xr_x; rtY.yout[1] = rtU.Xtarg[1] - (rtU.r/|Xr|)*Xr_y; rtY.yout[2] = 0.0
+  - Note: Verify "nearest" selection via dAct1 < dAct2 test as computed in code. No check for port-side can be verified from code in Inner mode.
+- Timing requirements:
+  - 0-cycle. Check at cycle end.
+
+2.6 Requirement 6
+- Text: Output consistent aim point with static target without appreciable transient; magnitude change over one frame shall not exceed (|Vt| + |Vv|) * T.
+- Initial conditions:
+  - Two consecutive cycles k-1 and k with known T; requires rtU.Vt and rtU.Vv.
+- Input triggers:
+  - Changes in rtU.Xtarg, rtU.Xv, rtU.Vv, rtU.r between cycles.
+- Relevant state variables:
+  - None persistent; behavior is memoryless per cycle. No UnitDelay present.
+- Expected state changes:
+  - Not implemented in code: There is no use of sample period T and no input rtU.Vt in NLGuidance_12B.c. ExtU does not define Vt; only rtU.Vv is present.
+- Output verification:
+  - Cannot be verified as specified from the provided code because:
+    - rtU.Vt is not present.
+    - T is not present.
+    - No internal filtering or rate limiting exists.
+  - If a check must be approximated purely from code, only |rtY.yout[k] - rtY.yout[k-1]| can be compared to |rtU.Vv|*T (incomplete; missing |Vt|), but this is not coded.
+- Timing requirements:
+  - Cross-cycle check: compare outputs between consecutive calls NLGuidance_12B_step() at cycle end.
+  - No internal state implies no guaranteed transient bound.
+
+2.7 Requirement 7
+- Text: Output equivalent altitude of the vehicle for in-plane navigation (target and vehicle altitudes equal).
+- Initial conditions:
+  - In-plane defined as rtU.Xtarg[2] == rtU.Xv[2].
+- Input triggers:
+  - Any inputs satisfying in-plane condition.
+- Relevant state variables:
+  - S1_If_Mode; branch expressions as above.
+- Expected state changes:
+  - Not enforced in code:
+    - Inner: rtY.yout[2] is forced to 0.0 regardless of rtU.Xv[2].
+    - Outer: rtY.yout[2] = rtU.Xv[2] + (((k_minus)*Xr_z*(+M1) - t_z) * rtU.r + Xr_z) in CCW; with Xr_z = 0 in-plane, this reduces to rtY.yout[2] = rtU.Xv[2] - (t_z * rtU.r) where t_z = scale * rtU.Vv[2]. This generally does not equal rtU.Xv[2] unless rtU.Vv[2] = 0.
+- Output verification:
+  - Inner: Verify rtY.yout[2] == 0.0 (code behavior).
+  - Outer: With in-plane (Xr_z = 0), verify rtY.yout[2] = rtU.Xv[2] - (scale * rtU.Vv[2]) * rtU.r. This is not guaranteed to match rtU.Xv[2] unless rtU.Vv[2] = 0.
+- Timing requirements:
+  - 0-cycle. Check at cycle end.
+
+3. Timing Considerations
+- Update sequences (within one NLGuidance_12B_step() cycle)
+  1) Compute Xr components:
+     - rtb_Xr_idx_0 = rtU.Xtarg[0] - rtU.Xv[0]
+     - rtb_Xr_idx_1 = rtU.Xtarg[1] - rtU.Xv[1]
+     - rtb_Product1 = rtU.Xtarg[2] - rtU.Xv[2]  (note: rtb_Product1 is reused later)
+  2) Compute |Xr|^2 = rtb_Sum2_tmp; |Xr| = rtb_MathFunction1
+  3) Compute Xr·Vv = rtb_XrDotVv
+  4) Compute |Vv| and then Sum1 = ||Vv||^2*|Xr|^2 - (Xr·Vv)^2 = rtb_MathFunction_idx_0
+  5) Compute Sum2 = |Xr|^2 - rtU.r^2
+  6) Mode decision:
+     - If (Sum2 <= 0.0) OR (Sum1 <= 0.0): go Inner; else Outer
+  7) Inner:
+     - s = rtU.r / |Xr|
+     - Candidate Act1 XY = rtU.Xtarg[0:1] + s*Xr[0:1]; Candidate Act2 XY = rtU.Xtarg[0:1] - s*Xr[0:1]
+     - Distances dAct1, dAct2 use z difference (0.0 - rtU.Xv[2])
+     - Select closer; set rtY.yout[2] = 0.0
+  8) Outer:
+     - scale = sqrt(Sum2 / Sum1); t = scale * rtU.Vv; M1 = 1/|Xr|^2; S = scale * (Xr·Vv)
+     - k_plus = rtU.r + S; k_minus = S - rtU.r
+     - Branch decision in '<S3>/If' is always "CCW"
+     - CCW output: rtY.yout = rtU.Xv + ( ((k_minus)*Xr*(+M1) - t) * rtU.r + Xr )
+- Critical dependencies
+  - S1_If_Mode depends on |Xr|, rtU.r, and (Xr, rtU.Vv).
+  - S3_If_Branch is fixed to "CCW" due to the identically zero test expression.
+  - Inner selection S2_If_Select depends on planar distances using z-plane at 0.0, not actual rtU.Xtarg[2]; this affects requirement 7 behavior.
+- Cycle requirements
+  - Each NLGuidance_12B_step() call is one cycle.
+  - All state checks and output verifications shall be performed at the end of the NLGuidance_12B_step() call (no internal delays).
+  - There is no UnitDelay; no values are updated after NLGuidance_12B_step() completes.
+
+Additional notes from code vs requirements
+- The requirements list a target velocity input Vt; the provided NLGuidance_12B.c does not define or use rtU.Vt. All logic is based on rtU.Xtarg, rtU.Xv, rtU.Vv, rtU.r only.
+- The "CW" aim point expression exists in code but is never selected by the current branch condition; the model outputs only the "CCW" aim point in Outer mode.
+- In Inner mode, altitude output is hard-coded to 0.0 (rtY.yout[2] = 0.0).

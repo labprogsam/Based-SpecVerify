@@ -1,0 +1,218 @@
+Filename: euler321_I2B_12B_analysis.txt
+
+1. State Variable Mapping
+- Global step function (one cycle):
+  - Function name: euler321_I2B_12B_step()
+  - Each call = 1 cycle
+  - All checks must be performed after euler321_I2B_12B_step()
+
+- External inputs (root inports) in ExtU rtU:
+  - rtU.phi
+    - Type: real_T
+    - Possible values: any finite double (radians)
+    - Meaning: Roll angle for Euler-3 rotation (about x-axis)
+  - rtU.theta
+    - Type: real_T
+    - Possible values: any finite double (radians)
+    - Meaning: Pitch angle for Euler-2 rotation (about y-axis)
+  - rtU.psi
+    - Type: real_T
+    - Possible values: any finite double (radians)
+    - Meaning: Heading/Yaw angle for Euler-1 rotation (about z-axis)
+  - rtU.Vi[3]
+    - Type: real_T[3]
+    - Possible values: any finite 3-element vector
+    - Meaning: 3x1 Inertial frame vector
+
+- External outputs (root outports) in ExtY rtY:
+  - rtY.DCM321[9]
+    - Type: real_T[9] (3x3 matrix, column-major storage)
+    - Meaning: Direction Cosine Matrix for 3-2-1 (z-y-x) rotation. In code, rtY.DCM321 = R3(phi) * R2(theta) * R1(psi)
+  - rtY.Vb[3]
+    - Type: real_T[3]
+    - Meaning: Input vector rtU.Vi expressed in body frame: rtY.Vb = rtY.DCM321 * rtU.Vi
+
+- Internal temporaries (local to euler321_I2B_12B_step()):
+  - rtb_VectorConcatenate[9]
+    - Role sequence:
+      1) Holds R2(theta) initially
+      2) Later overwritten to hold final DCM321 = R3 * R2 * R1 before copying to rtY.DCM321
+  - rtb_VectorConcatenate_g[9]
+    - Role sequence:
+      1) Holds R1(psi)
+      2) Later overwritten to hold R3(phi)
+  - rtb_Product[9]
+    - Role: Intermediate product M = R2(theta) * R1(psi)
+  - rtb_sincos_o1, rtb_sincos_o2
+    - Role: sin/cos scratch variables reused for theta, psi, phi
+  - rtb_VectorConcatenate_p
+    - Role: temporary for multiply loop scalar
+  - i, i_0
+    - Role: loop indices
+
+- State transitions and conditions:
+  - There are no persistent states. The model is purely combinational per cycle. No state machines, no enable/disable conditions, and no memory elements are present.
+
+- UnitDelay status:
+  - UnitDelay: NONE. There is no UnitDelay in this C file; therefore nothing is updated after euler321_I2B_12B_step().
+
+- Update sequences (within one cycle in exact order):
+  1) Compute sin(rtU.theta), cos(rtU.theta); write R2(theta) into rtb_VectorConcatenate
+  2) Compute sin(rtU.psi), cos(rtU.psi); write R1(psi) into rtb_VectorConcatenate_g
+  3) Matrix multiply: rtb_Product = R2(theta) * R1(psi)
+  4) Compute sin(rtU.phi), cos(rtU.phi); write R3(phi) into rtb_VectorConcatenate_g (overwriting previous R1)
+  5) Matrix multiply: rtb_VectorConcatenate = R3(phi) * rtb_Product = R3(phi) * R2(theta) * R1(psi)
+  6) Copy to output: memcpy(rtY.DCM321, rtb_VectorConcatenate, 9*sizeof(real_T))
+  7) Compute output vector: rtY.Vb = rtY.DCM321 * rtU.Vi
+
+2. For each requirement
+Note: For all requirements, the verification checkpoint is at the end of the cycle, i.e., after euler321_I2B_12B_step() returns. No UnitDelay is present; the model does not retain prior-cycle values internally.
+
+1) Requirement 1
+- Initial conditions:
+  - None required. Inputs rtU.phi, rtU.theta, rtU.psi are finite doubles.
+- Input triggers:
+  - Any new values on rtU.phi, rtU.theta, rtU.psi before calling euler321_I2B_12B_step().
+- Expected state changes:
+  - No state changes (no persistent state). Internal temporaries are computed as:
+    - rtb_VectorConcatenate = R2(theta)
+    - rtb_VectorConcatenate_g = R1(psi) then overwritten with R3(phi)
+    - rtb_Product = R2(theta) * R1(psi)
+    - rtb_VectorConcatenate = R3(phi) * rtb_Product
+  - rtY.DCM321 is updated by memcpy from rtb_VectorConcatenate.
+- Output verification:
+  - Verify rtY.DCM321 equals the product R3(phi) * R2(theta) * R1(psi) built exactly as in code:
+    - R1(psi) = [cos(psi) -sin(psi) 0; sin(psi) cos(psi) 0; 0 0 1]
+    - R2(theta) = [cos(theta) 0 sin(theta); 0 1 0; -sin(theta) 0 cos(theta)]
+    - R3(phi) = [1 0 0; 0 cos(phi) -sin(phi); 0 sin(phi) cos(phi)]
+  - Order in code: rtb_Product = R2 * R1; rtY.DCM321 = R3 * rtb_Product = R3 * R2 * R1.
+- Timing requirements:
+  - 1 cycle. Validate immediately after euler321_I2B_12B_step().
+
+2) Requirement 2
+- Initial conditions:
+  - rtY.DCM321 has just been computed in the same cycle as per Requirement 1.
+  - rtU.Vi[3] provided.
+- Input triggers:
+  - Any new rtU.Vi (and/or angles) before the call.
+- Expected state changes:
+  - No state changes. rtY.Vb is computed from the final rtb_VectorConcatenate (which equals rtY.DCM321) and rtU.Vi within the same cycle.
+- Output verification:
+  - Verify rtY.Vb = rtY.DCM321 * rtU.Vi, using the exact multiplication used in code (column-major):
+    - For i = 0..2: rtY.Vb[i] = rtY.DCM321[i]*rtU.Vi[0] + rtY.DCM321[i+3]*rtU.Vi[1] + rtY.DCM321[i+6]*rtU.Vi[2]
+- Timing requirements:
+  - 1 cycle. Validate immediately after euler321_I2B_12B_step().
+
+3) Requirement 3
+- Initial conditions:
+  - rtY.Vb computed from Requirement 2; rtU.Vi provided.
+- Input triggers:
+  - New inputs prior to step; property to be checked per cycle after outputs computed.
+- Expected state changes:
+  - None.
+- Output verification:
+  - Verify magnitude preservation: ||rtY.Vb||_2^2 = ||rtU.Vi||_2^2
+    - Compute lhs = sum_{i=0..2} rtY.Vb[i]^2
+    - Compute rhs = sum_{i=0..2} rtU.Vi[i]^2
+    - Check lhs == rhs within numerical tolerance (due to floating-point).
+  - This holds because rtY.DCM321 is orthogonal in code construction.
+- Timing requirements:
+  - 1 cycle. Validate immediately after euler321_I2B_12B_step().
+
+4) Requirement 4
+- Initial conditions:
+  - rtY.DCM321 computed this cycle from rtU.phi, rtU.theta, rtU.psi.
+- Input triggers:
+  - Any inputs; special attention when rtU.theta == +/- pi/2.
+- Expected state changes:
+  - None.
+- Output verification:
+  - The code constructs rtY.DCM321 as a product of rotation matrices with determinant 1; it is invertible for all theta, including theta = +/- pi/2. No singularity handling is implemented.
+  - To check invertibility in-code terms:
+    - Compute det(rtY.DCM321) and verify it is non-zero (expected ≈ 1.0).
+  - Note: The stated exception at theta = +/- pi/2 is not enforced or reflected by any branch in this code. According to this implementation, rtY.DCM321 remains invertible at all theta.
+- Timing requirements:
+  - 1 cycle. Validate immediately after euler321_I2B_12B_step().
+
+5) Requirement 5
+- Initial conditions:
+  - None persisted. Distinctness must be evaluated by comparing outputs across cycles if comparing different theta values.
+- Input triggers:
+  - Two or more cycles with different rtU.theta values (theta_a != theta_b), any rtU.phi, rtU.psi.
+- Expected state changes:
+  - None (no storage in the model). A test harness must retain prior-cycle values for comparison; the model does not.
+- Output verification:
+  - For two cycles k and k+1:
+    - Provide inputs (phi_k, theta_k, psi_k) and (phi_{k+1}, theta_{k+1}, psi_{k+1}) with theta_k != theta_{k+1}.
+    - Verify rtY.DCM321(k) != rtY.DCM321(k+1) (element-wise difference exceeding numerical tolerance), implying a distinct mapping Vi -> Vb for each theta.
+  - Note: The code does not attempt to remove non-uniqueness for phi, psi; as stated, DCM321 may not be distinct for all phi and psi combinations.
+- Timing requirements:
+  - 2 cycles minimum (to compare two different theta values). Compare at end of each cycle (after euler321_I2B_12B_step()) using stored prior result externally.
+
+6) Requirement 6
+- Initial conditions:
+  - rtY.DCM321 computed this cycle.
+- Input triggers:
+  - New angle inputs; check after output established.
+- Expected state changes:
+  - None.
+- Output verification:
+  - Orthonormal rows and columns:
+    - Let r_i be row i of rtY.DCM321 and c_i be column i.
+    - Verify for i != j: dot(r_i, r_j) = 0 and dot(c_i, c_j) = 0
+    - Verify for all i: dot(r_i, r_i) = 1 and dot(c_i, c_i) = 1
+  - Use rtY.DCM321 entries directly after computation. Column-major indexing: element at row r, column c is rtY.DCM321[r + 3*c].
+- Timing requirements:
+  - 1 cycle. Validate immediately after euler321_I2B_12B_step().
+
+7) Requirement 7
+- Initial conditions:
+  - rtY.DCM321 computed this cycle.
+- Input triggers:
+  - New angle inputs; check after output established.
+- Expected state changes:
+  - None.
+- Output verification:
+  - Verify rtY.DCM321 * (rtY.DCM321)^T = I_3
+    - Compute M = rtY.DCM321
+    - Compute P = M * M^T and check P ≈ Identity(3) within numerical tolerance
+  - This is equivalent to Requirement 6 but expressed as a matrix identity; both are satisfied by the code’s construction.
+- Timing requirements:
+  - 1 cycle. Validate immediately after euler321_I2B_12B_step().
+
+8) Requirement 8
+- Initial conditions:
+  - rtY.DCM321 computed this cycle.
+- Input triggers:
+  - New angle inputs; check after output established.
+- Expected state changes:
+  - None.
+- Output verification:
+  - Verify determinant |rtY.DCM321| = 1.0 (within tolerance).
+  - Determinant of a product of rotation matrices is exactly 1 in exact arithmetic; floating point may incur small error.
+- Timing requirements:
+  - 1 cycle. Validate immediately after euler321_I2B_12B_step().
+
+3. Timing Considerations
+- Update sequences (within one cycle):
+  - Order is strictly:
+    1) Build R2(theta) into rtb_VectorConcatenate
+    2) Build R1(psi) into rtb_VectorConcatenate_g
+    3) Multiply rtb_Product = R2(theta) * R1(psi)
+    4) Build R3(phi) into rtb_VectorConcatenate_g (overwriting R1)
+    5) Multiply rtb_VectorConcatenate = R3(phi) * rtb_Product
+    6) memcpy rtY.DCM321 from rtb_VectorConcatenate
+    7) Compute rtY.Vb = rtY.DCM321 * rtU.Vi
+
+- Critical dependencies:
+  - rtb_VectorConcatenate_g is reused: first for R1(psi), later overwritten with R3(phi) after rtb_Product has been computed.
+  - rtb_VectorConcatenate initially holds R2(theta) and is later overwritten with the final DCM prior to memcpy to rtY.DCM321.
+  - The order of operations ensures the final DCM is R3 * R2 * R1 as required.
+
+- Cycle requirements:
+  - All properties 1, 2, 3, 6, 7, 8 can be verified within a single cycle at the checkpoint after euler321_I2B_12B_step().
+  - Requirement 5 requires at least two cycles for comparison of different theta values; since the model holds no state, an external harness must capture prior results.
+  - Requirement 4: The code does not implement any special-case handling at theta = +/- pi/2; determinant remains ≈ 1, so invertibility holds for all theta per this implementation.
+
+- UnitDelay update timing:
+  - No UnitDelay exists; thus there is no post-step UnitDelay update. All computations and updates to rtY.* occur within the step; outputs are final at the end of the same cycle.

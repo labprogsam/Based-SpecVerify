@@ -1,0 +1,102 @@
+# State Variable and Requirements Analysis for EB_12B
+
+## 1. State Variable Mapping
+
+### Variables Names and Meanings:
+- **rtU.B_j**: Input matrix B (control effectiveness matrix, 3x5)
+- **rtConstB.Divide**: Pre-computed inv(Wp') matrix (5x5)
+- **rtConstP.Const_Value**: Wp matrix (weighting preference matrix, 5x5)
+- **rtConstP.Const2_Value**: Input vector d (desired acceleration error, 3x1)
+- **rtb_RelationalOperator**: Boolean flag for ridge_on condition
+- **rtb_Product1_a**: Matrix B*inv(Wp')*B' (3x3)
+- **rtb_Divide1**: Inverse of B*inv(Wp')*B' (3x3)
+- **rtY.check**: Inversion check matrix (3x3)
+- **rtY.yinv**: Inverse matrix output (3x3)
+- **rtY.P_k**: Transformation gain matrix P (5x3)
+- **rtY.u**: Control effector solution vector (5x1)
+- **rtY.Buminusd**: Error vector B*u - d (3x1)
+- **rtY.J**: Total cost of solution (scalar)
+- **rtY.ridge_on**: Ridge regression flag output (boolean)
+
+### Possible Values:
+- **rtb_RelationalOperator**: true (determinant ≤ 1e-12) or false (determinant > 1e-12)
+- **rtY.ridge_on**: true or false (same as rtb_RelationalOperator)
+- All matrix/vector outputs: Real-valued doubles
+
+### Update Sequences:
+**Note: NO UnitDelay blocks are present in this code - all computations occur within single step**
+
+## 2. Requirement-Specific Analysis
+
+### Requirement 1: Ridge_on = True, Check Matrix Precision
+- **Initial conditions**: None (stateless computation)
+- **Input triggers**: B matrix values such that det(B*inv(Wp')*B') ≤ 1e-12
+- **Expected state changes**: 
+  - rtb_RelationalOperator = true
+  - Identity matrix (1e-10 diagonal) added to B*inv(Wp')*B' before inversion
+  - rtY.ridge_on = true
+- **Output verification**: Each element of rtY.check should be within 1e-6 of identity matrix
+- **Timing requirements**: 1 cycle (verification after EB_12B_step())
+
+### Requirement 2: Ridge_on = False, Check Matrix Precision
+- **Initial conditions**: None (stateless computation)
+- **Input triggers**: B matrix values such that det(B*inv(Wp')*B') > 1e-12
+- **Expected state changes**:
+  - rtb_RelationalOperator = false
+  - No identity matrix added to B*inv(Wp')*B'
+  - rtY.ridge_on = false
+- **Output verification**: Each element of rtY.check should be within 1e-12 of identity matrix
+- **Timing requirements**: 1 cycle (verification after EB_12B_step())
+
+### Requirement 3: Output u Vector Dimension
+- **Initial conditions**: None (stateless computation)
+- **Input triggers**: Any valid B matrix input
+- **Expected state changes**: rtY.u computed as 5x1 vector
+- **Output verification**: rtY.u has dimension 5x1
+- **Timing requirements**: 1 cycle (verification after EB_12B_step())
+
+### Requirement 4: Buminusd 2-norm Constraint
+- **Initial conditions**: None (stateless computation)
+- **Input triggers**: Any valid B matrix and d vector inputs
+- **Expected state changes**: rtY.Buminusd computed as B*u - d
+- **Output verification**: ||rtY.Buminusd||_2 < 0.01
+- **Timing requirements**: 1 cycle (verification after EB_12B_step())
+
+### Requirement 5: Minimum Cost J
+- **Initial conditions**: None (stateless computation)
+- **Input triggers**: Any valid input set (B, Wp, d, up)
+- **Expected state changes**: rtY.J computed as u'*Wp*u
+- **Output verification**: rtY.J is minimum possible value for given inputs
+- **Timing requirements**: 1 cycle (verification after EB_12B_step())
+
+## 3. Timing Considerations
+
+### Update Sequences:
+1. Input B matrix read from rtU.B_j
+2. Compute B*inv(Wp')*B' → rtb_Product1_a
+3. Check determinant condition → rtb_RelationalOperator
+4. Add ridge term if needed
+5. Compute matrix inverse → rtb_Divide1
+6. Compute transformation matrix P → rtY.P_k
+7. Compute control solution u → rtY.u
+8. Compute check matrix → rtY.check
+9. Compute error vector → rtY.Buminusd
+10. Compute cost J → rtY.J
+11. Set ridge_on output → rtY.ridge_on
+
+### Critical Dependencies:
+- Ridge condition must be evaluated before matrix inversion
+- Matrix inversion must complete before P computation
+- P must be computed before u calculation
+- u must be computed before Buminusd and J calculations
+
+### Cycle Requirements:
+- **All computations occur within single EB_12B_step() call**
+- **No state variables carried between cycles**
+- **Each requirement verification needs only 1 cycle**
+- **All outputs available immediately after EB_12B_step() returns**
+
+### Important Notes:
+- **NO UnitDelay blocks present** - this is a purely combinational/algebraic system
+- All state checks should be performed after EB_12B_step() call
+- System is memoryless - outputs depend only on current inputs
